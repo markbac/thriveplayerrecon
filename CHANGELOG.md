@@ -16,5 +16,6 @@ First release.
 - Not paying list for players with no active mandate or not in Thrive
 - Excel export: full workbook with a sheet per team, a single team, or one file per team in a dated folder
 - Option to leave medical details out of exports
+- Data protection: a permanent UK GDPR banner in the app, a warning each time any export is clicked, and a confidentiality line on every exported sheet
 - Easier use: find latest exports in Downloads, wrong-way-round file detection, help, tooltips, details window for any row
 - Build and release pipeline that publishes the Windows exe from a version tag

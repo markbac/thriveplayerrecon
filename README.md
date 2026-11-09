@@ -15,6 +15,7 @@ It works entirely on your own computer. Nothing is uploaded or sent anywhere.
 - Builds **team sheets** for managers: players, contacts, medical information and consents, coloured by whether each player is in the FA, Thrive or both
 - Lists players who will not be paying (no active Thrive mandate, or not in Thrive)
 - Exports everything to Excel: one full workbook, or one file per team ready to send to managers
+- Keeps data protection in view: a permanent UK GDPR banner in the app and a warning every time you export
 
 ## Download and run
 
