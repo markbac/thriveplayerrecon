@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-09
+
+### Changed
+- Team sheets make non-payers obvious: the Paying column is now next to the name and says "✖ NOT PAYING (reason)" or "✔ Yes", non-payers have a strong red row in bold (with a key chip), the number not paying is shown in red above the list, and "Show only not paying" lists just them
+
 ## [1.1.1] - 2026-11-09
 
 ### Changed

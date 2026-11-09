@@ -837,8 +837,21 @@ TEAM_DETAIL_SECTIONS = [("Player", PLAYER_HEADERS), ("Contacts", CONTACT_HEADERS
 
 def team_view_headers(include_medical: bool = True) -> List[str]:
     """Columns for the compact on-screen team list (the full detail is shown on double-click)."""
-    return ["Player", "Age", "In", "FA status", "Paying", "Main contact"] \
+    return ["Player", "Paying", "Age", "In", "FA status", "Main contact"] \
         + (["Medical"] if include_medical else []) + ["Note"]
+
+
+def paying_label(status: str) -> str:
+    """Short, eye-catching form of paying_status for the on-screen list."""
+    if status == "Yes":
+        return "✔ Yes"
+    if status.startswith("No"):
+        return "✖ NOT PAYING (" + status.split(":", 1)[1].strip() + ")"
+    return status
+
+
+def is_unpaid(status: str) -> bool:
+    return status.startswith("No")
 
 
 def team_overview(headers: List[str], values: list, include_medical: bool = True) -> list:
@@ -846,7 +859,7 @@ def team_overview(headers: List[str], values: list, include_medical: bool = True
     v = dict(zip(headers, values))
     contact = (v.get("Account owner (Thrive)") or v.get("Parent/guardian (Thrive)")
                or v.get("Parent/carer (FA)") or "")
-    out = [v["Player"], v["Age"], v["In"], v["FA status"], v["Paying through Thrive"], contact]
+    out = [v["Player"], paying_label(v["Paying through Thrive"]), v["Age"], v["In"], v["FA status"], contact]
     if include_medical:
         flag = v.get("Medical info?") or "Not known"
         out.append("⚠ Yes" if flag == "Yes" else flag)  # warning sign so it stands out in the list
