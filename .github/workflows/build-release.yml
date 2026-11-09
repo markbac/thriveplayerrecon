@@ -1,0 +1,150 @@
+name: Build and release
+
+# Builds the Windows exe on every change to the app, and publishes a GitHub release when a
+# version tag (for example v1.0.0) is pushed. See docs/development.md for the release steps.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "requirements*.txt"
+      - ".github/workflows/build-release.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "requirements*.txt"
+      - ".github/workflows/build-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows exe
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Read app version
+        id: ver
+        shell: bash
+        run: |
+          VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from version import __version__; print(__version__)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "App version is $VERSION"
+
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match src/version.py ($VERSION). Update the version, commit, and tag again."
+            exit 1
+          fi
+
+      - name: Build exe with PyInstaller
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          python -m PyInstaller --noconfirm --onefile --windowed \
+            --name "PlayerReconcile-$VERSION" \
+            --icon src/assets/icon.ico \
+            --add-data "src/assets;assets" \
+            --paths src \
+            src/app.py
+
+      - name: Smoke test the exe starts
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $p = Start-Process -FilePath "dist/PlayerReconcile-$env:VERSION.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Self test failed with exit code $($p.ExitCode)" }
+
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/*.exe | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Out-File -Encoding ascii dist/SHA256SUMS.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayerReconcile-${{ steps.ver.outputs.version }}
+          path: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Download build
+        uses: actions/download-artifact@v4
+        with:
+          name: PlayerReconcile-${{ needs.build.outputs.version }}
+          path: release
+
+      - name: Extract release notes from CHANGELOG
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "Release $VERSION" > notes.md
+          fi
+          {
+            echo ""
+            echo "SHA-256 checksums are in SHA256SUMS.txt. The exe is not code signed, so Windows may show a SmartScreen warning the first time. See the README."
+          } >> notes.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "$TAG" release/*.exe release/SHA256SUMS.txt \
+            --title "Player Reconcile $VERSION" \
+            --notes-file notes.md \
+            --verify-tag
