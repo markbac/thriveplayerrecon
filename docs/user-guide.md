@@ -72,7 +72,10 @@ Useful things to know:
 
 The **Team sheets** tab is for team managers. Pick a team, or step through teams with the arrow buttons either side of the team box (or **Alt+Left** and **Alt+Right**).
 
-The list shows the key facts for each player: name, age, where registered, FA status, whether they pay through Thrive, main contact, whether medical information is recorded and any note. Players with medical information are shown in red with a warning sign.
+The list shows the key facts for each player: name, whether they pay through Thrive, age, where registered, FA status, main contact, whether medical information is recorded and any note.
+
+- Players **not paying** (no active mandate, or not found in Thrive) have a **red row in bold** and are marked **✖ NOT PAYING**. The red replaces the registration colour; the In column still says where they are registered. The number not paying is shown in red above the list. Tick **Show only not paying** to list just them
+- Players with medical information are shown in red with a warning sign
 
 - **Search** finds a player by any detail, including phone numbers, emails and medical conditions
 - Click a column heading to sort, and click again to reverse

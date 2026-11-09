@@ -17,6 +17,7 @@ import reconcile_core as rc
 from version import APP_NAME, APP_TITLE, __version__
 
 SOURCE_COLOURS = {"Both": "#E2F0D9", "FA only": "#FCE4D6", "Thrive only": "#DDEBF7", rc.NO_FA: "#EDEDED"}
+UNPAID_COLOUR = "#F4A3A3"  # strong red: not paying through Thrive, overrides the colours above on team sheets
 ROW_COLOURS = {"ok": "#E2F0D9", "warn": "#FFF2CC", "bad": "#F8CBAD", "info": "#EDEDED"}
 IGNORE_LABEL, UNMAPPED_LABEL = "(ignore)", "(unmapped)"
 FONT = ("Segoe UI", 10) if sys.platform == "win32" else None
@@ -108,8 +109,10 @@ small typos and swapped first and last names are all recognised, but never repor
 Pick a team to see its players. Use the arrow buttons either side of the team box (or Alt+Left / Alt+Right) to \
 move to the previous or next team.
 
-The list shows the key facts: name, age, where registered, FA status, whether they pay through Thrive, main \
-contact, whether medical information is recorded and any note. Players with medical information are shown in red. \
+The list shows the key facts: name, whether they pay through Thrive, age, where registered, FA status, main \
+contact, whether medical information is recorded and any note. Players not paying (no active mandate, or not in \
+Thrive) have a red row in bold and are marked NOT PAYING, with the number shown in red above the list; tick "Show only not \
+paying" to list just them. Players with medical information are shown in red. \
 Use Search to find a player by name, phone, email or condition, and click a column heading to sort. Double-click a player (or select and press Enter) to see \
 everything: all contacts and emails, full medical details and consents.
 
@@ -310,6 +313,9 @@ class App(tk.Tk):
         style.configure("Heading.TLabel", font=("Segoe UI", 13, "bold") if FONT else None)
         style.configure("Hint.TLabel", foreground="#1F4E79")
         style.configure("Warn.TLabel", foreground="#C00000")
+        big_bold = ("Segoe UI", 11, "bold") if FONT else None
+        style.configure("Unpaid.TLabel", font=big_bold, foreground="#C00000")
+        style.configure("AllPaid.TLabel", font=big_bold, foreground="#2E7D32")
         fix_treeview_tags()
 
         self.cfg = load_config()
@@ -547,7 +553,8 @@ class App(tk.Tk):
         self.placeholders.append(note)
 
     @staticmethod
-    def _search_row(parent, search_var, count_var, search_tip: str, hint: str) -> None:
+    def _search_row(parent, search_var, count_var, search_tip: str, hint: str, extra=None) -> None:
+        """Search box, clear button, optional extra control (built by `extra(row)`), count and hint."""
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text="Search").pack(side="left")
@@ -556,6 +563,8 @@ class App(tk.Tk):
         entry.bind("<Escape>", lambda _e: search_var.set(""))
         clear = tip(ttk.Button(row, text="✕", width=3, command=lambda: search_var.set("")), "Clear the search")
         clear.pack(side="left")
+        if extra:
+            extra(row).pack(side="left", padx=(12, 0))
         ttk.Label(row, textvariable=count_var, style="Warn.TLabel").pack(side="left", padx=8)
         autowrap(ttk.Label(row, text=hint, style="Hint.TLabel")).pack(side="left", fill="x", expand=True, padx=4)
 
@@ -580,9 +589,10 @@ class App(tk.Tk):
 
     # Sortable, searchable tables (Team sheets and Not paying). Each row is
     # (shown values, tags, payload for the details window, extra text to search).
-    def _register_table(self, tree, search_var: tk.StringVar, count_var: tk.StringVar) -> None:
+    def _register_table(self, tree, search_var: tk.StringVar, count_var: tk.StringVar, only_tag=None) -> None:
+        """only_tag=(tag, BooleanVar): when the variable is ticked, show only rows carrying that tag."""
         self.tables[str(tree)] = {"headers": [], "rows": [], "sort": (None, False), "search": search_var,
-                                  "count": count_var, "payload": {}}
+                                  "count": count_var, "payload": {}, "only_tag": only_tag}
         search_var.trace_add("write", lambda *_a: self._render_table(tree))
 
     def _set_table(self, tree, headers, rows, cap: int = 320, hide_empty: bool = False, keep: int = 1) -> None:
@@ -617,6 +627,10 @@ class App(tk.Tk):
         rows = t["rows"]
         if term:
             rows = [r for r in rows if term in (" ".join(map(str, r[0])) + " " + r[3]).lower()]
+        only = t.get("only_tag")
+        filtered = bool(term) or bool(only and only[1].get())
+        if only and only[1].get():
+            rows = [r for r in rows if only[0] in r[1]]
         if col is not None:
             rows = sorted(rows, key=lambda r: _sort_key(r[0][col]), reverse=desc)
         tree.delete(*tree.get_children())
@@ -624,7 +638,7 @@ class App(tk.Tk):
         for shown, tags, payload, _text in rows:
             t["payload"][tree.insert("", "end", values=shown, tags=tags)] = payload
         total = len(t["rows"])
-        count = f"Showing {len(rows)} of {total}" if term else ""
+        count = f"Showing {len(rows)} of {total}" if filtered else ""
         t["count"].set("   ".join(x for x in (count, t.get("hidden", "")) if x))
 
     def _build_team_tab(self) -> None:
@@ -659,9 +673,20 @@ class App(tk.Tk):
                  rc.NO_FA: "A Thrive group with no FA team, such as U4 to U6 or training. FA registration is "
                            "not needed; only the Thrive mandate is checked."}[text]
                 ).pack(side="left", padx=2)
+        tip(tk.Label(top, text="  Not paying  ", background=UNPAID_COLOUR, font=("Segoe UI", 10, "bold")
+                     if FONT else None),
+            "No active Thrive mandate, or not found in Thrive. This colour replaces the registration colour, so "
+            "these players stand out.").pack(side="left", padx=(8, 2))
 
-        # Row 2: player counts and the team's managers
-        autowrap(ttk.Label(tab, textvariable=self.team_summary_var)).pack(fill="x", pady=(2, 2))
+        # Row 2: how many are not paying (prominent), then player counts and the team's managers
+        row2 = ttk.Frame(tab)
+        row2.pack(fill="x", pady=(2, 2))
+        self.team_unpaid_var = tk.StringVar()
+        self.team_unpaid_label = tip(ttk.Label(row2, textvariable=self.team_unpaid_var, style="Unpaid.TLabel"),
+                                     "Players with no active Thrive mandate, or not found in Thrive. They are in "
+                                     "bold in the list. Tick 'Show only not paying' to list just them.")
+        self.team_unpaid_label.pack(side="left", padx=(0, 12), anchor="n")
+        autowrap(ttk.Label(row2, textvariable=self.team_summary_var)).pack(side="left", fill="x", expand=True)
 
         # Row 3: sharing actions, left-aligned so they stay visible in a smaller window
         acts = ttk.Frame(tab)
@@ -685,13 +710,24 @@ class App(tk.Tk):
         self.bind("<Alt-Left>", lambda _e: self._step_team(-1, only_on_tab=True))
         self.bind("<Alt-Right>", lambda _e: self._step_team(1, only_on_tab=True))
         self.team_search_var, self.team_count_var = tk.StringVar(), tk.StringVar()
+        self.team_unpaid_only = tk.BooleanVar(value=False)
         self._search_row(tab, self.team_search_var, self.team_count_var,
                          "Type part of a name, phone number, email or condition to find a player in this team.",
-                         "Click a column heading to sort. Double-click a player for full details. "
-                         "Red text = medical information recorded.")
+                         "Red rows in bold = not paying through Thrive. Red text = medical information recorded. "
+                         "Click a column heading to sort. Double-click a player for full details.",
+                         extra=lambda row: tip(ttk.Checkbutton(
+                             row, text="Show only not paying", variable=self.team_unpaid_only,
+                             command=lambda: self._render_table(self.team_tree)),
+                             "List only players with no active Thrive mandate or not found in Thrive."))
         self.team_tree = self._make_tree(tab)
         self.team_tree.tag_configure("medical", foreground="#B00000")
-        self._register_table(self.team_tree, self.team_search_var, self.team_count_var)
+        self.team_tree.tag_configure("medical_unpaid", foreground="#6E0000")
+        bold = tkfont.Font(font=FONT) if FONT else tkfont.nametofont("TkDefaultFont").copy()
+        bold.configure(weight="bold")
+        self.unpaid_font = bold
+        self.team_tree.tag_configure("unpaid", font=bold, background=UNPAID_COLOUR)
+        self._register_table(self.team_tree, self.team_search_var, self.team_count_var,
+                             only_tag=("unpaid", self.team_unpaid_only))
         self.team_tree.bind("<Double-1>", lambda _e: self._team_detail())
         self.team_tree.bind("<Return>", lambda _e: self._team_detail())
 
@@ -1192,14 +1228,28 @@ class App(tk.Tk):
         medical = self.medical_var.get()
         headers, rows = rc.team_report(self.result, label, medical)
         view = rc.team_view_headers(medical)
-        table_rows = []
+        paying_i = headers.index("Paying through Thrive")
+        table_rows, unpaid = [], 0
         for values, source in rows:
             shown = [_cell(v) for v in rc.team_overview(headers, values, medical)]
-            tags = (source, "medical") if medical and "⚠ Yes" in shown else (source,)
-            table_rows.append((shown, tags, (headers, values), " ".join(_cell(v) for v in values)))
+            # Not paying overrides the registration colour, so these rows stand out (the In column still says
+            # where they are registered)
+            tags = ["unpaid"] if rc.is_unpaid(values[paying_i]) else [source]
+            unpaid += tags == ["unpaid"]
+            if medical and "⚠ Yes" in shown:
+                tags.append("medical_unpaid" if tags == ["unpaid"] else "medical")  # darker red on red rows
+            table_rows.append((shown, tuple(tags), (headers, values), " ".join(_cell(v) for v in values)))
         self._set_table(self.team_tree, view, table_rows, cap=280)
         last = len(view) - 1
         self.team_tree.column(last, stretch=True, width=max(300, self.team_tree.column(last, "width")))
+        # unpaid rows are bold, so size the Player and Paying columns for bold text
+        for col in (0, 1):
+            widest = max([self.unpaid_font.measure(r[0][col]) + 20 for r in table_rows if "unpaid" in r[1]] or [0])
+            if widest > int(self.team_tree.column(col, "width")):
+                self.team_tree.column(col, width=min(widest, 340))
+        self.team_unpaid_var.set(f"✖ {unpaid} not paying through Thrive" if unpaid
+                                 else "✔ Everyone is paying through Thrive")
+        self.team_unpaid_label.configure(style="Unpaid.TLabel" if unpaid else "AllPaid.TLabel")
         counts = {k: sum(1 for _, src in rows if src == k) for k in SOURCE_COLOURS}
         people = "   |   ".join(rc.staff_lines(self.result, label))
         self.team_summary_var.set(f"{len(rows)} players: {counts['Both']} in both, {counts['FA only']} FA only, "
