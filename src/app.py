@@ -45,6 +45,17 @@ BANNER_TEXT = ("Personal data warning: this tool handles children's personal and
                "they are no longer needed.")
 
 
+WHATSAPP_WARNING = (
+    "This will show text containing children's personal data (names, ages, parent contact details and "
+    "possibly medical information) that you can paste into WhatsApp.\n\n"
+    "Before you send it:\n"
+    "  - Send it only to the manager and assistant who need it, never to a large group chat.\n"
+    "  - Ask them not to forward it, and to delete the message when it is no longer needed.\n"
+    "  - Keep medical details in a separate message to those who need them.\n"
+    "  - WhatsApp keeps copies on every device in the chat, so be sure everyone in it should see it.\n\n"
+    "Do you want to continue?")
+
+
 def export_warning(includes_medical: bool) -> str:
     details = "names, dates of birth and contact details"
     if includes_medical:
@@ -92,6 +103,16 @@ Green = in both FA and Thrive.   Orange = FA only.   Blue = Thrive only.
 dated folder, ready to send to each manager. Only send each manager their own team's file.
 
 Untick "Include medical details" to leave medical information out."""),
+    ("managers", "Managers file and WhatsApp", """\
+Managers will not have this tool, so the Team sheets tab can make text for you to paste into WhatsApp. Choose a team, \
+click Copy for WhatsApp and you get a squad message (players, contacts, FA and Thrive sign-up and direct debit \
+status) and a separate medical message. Each ends with a data protection reminder.
+
+To show manager names on team sheets and messages, choose an optional Managers file in Step 1. Click \
+Save a managers file template to see the layout: either one row per person (Name, Role, Team(s)) or one row per \
+team (Team, Manager, Assistant manager). Teams are matched by name, for example U12 Black.
+
+Send messages only to the people who need them, never to a big group, and ask them to delete them afterwards."""),
     ("paying", "Not paying", """\
 Lists players who have no active Thrive mandate, plus players registered with the FA but not found in Thrive. \
 These are the players who will not be paying through Thrive.
@@ -175,7 +196,7 @@ def config_path() -> str:
 
 
 def load_config() -> dict:
-    cfg = {"fa_path": "", "thrive_path": "", "fuzzy": rc.DEFAULT_FUZZY, "medical": True,
+    cfg = {"fa_path": "", "thrive_path": "", "staff_path": "", "fuzzy": rc.DEFAULT_FUZZY, "medical": True,
            "team_map": dict(rc.DEFAULT_TEAM_MAP)}
     try:
         with open(config_path(), encoding="utf-8") as fh:
@@ -253,6 +274,8 @@ class App(tk.Tk):
 
         self.fa_var = tk.StringVar(value=self.cfg["fa_path"])
         self.thrive_var = tk.StringVar(value=self.cfg["thrive_path"])
+        self.staff_var = tk.StringVar(value=self.cfg["staff_path"])
+        self.staff = []
         self.medical_var = tk.BooleanVar(value=bool(self.cfg.get("medical", True)))
         self.fuzzy_var = tk.StringVar(value=f"{float(self.cfg['fuzzy']):.2f}")
         self.search_var = tk.StringVar()
@@ -307,6 +330,7 @@ class App(tk.Tk):
         file_menu.add_separator()
         file_menu.add_command(label="Export full workbook...", command=self.export)
         file_menu.add_command(label="Export team files for managers...", command=self.export_each_team)
+        file_menu.add_command(label="Save a managers file template...", command=self.save_staff_template)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.destroy)
         bar.add_cascade(label="File", menu=file_menu)
@@ -344,7 +368,10 @@ class App(tk.Tk):
         files.columnconfigure(1, weight=1)
         rows = (("FA registration report", self.fa_var, "The Excel report downloaded from the FA player registration "
                                                       "system (Club - Player Report)."),
-                ("Thrive data export", self.thrive_var, "The Excel data export downloaded from Thrive."))
+                ("Thrive data export", self.thrive_var, "The Excel data export downloaded from Thrive."),
+                ("Managers file (optional)", self.staff_var, "Optional. An Excel or CSV list of managers, assistant "
+                 "managers and their teams. Their names then appear on team sheets and messages. Use Save a "
+                 "template to see the layout."))
         for i, (label, var, hint) in enumerate(rows):
             ttk.Label(files, text=label).grid(row=i, column=0, sticky="w", padx=(0, 8), pady=2)
             tip(ttk.Entry(files, textvariable=var), hint).grid(row=i, column=1, sticky="ew", pady=2)
@@ -352,7 +379,10 @@ class App(tk.Tk):
                 "Choose the file from your computer.").grid(row=i, column=2, padx=(8, 0))
         tip(ttk.Button(files, text="Find my latest exports", command=self._find_latest),
             "Looks in your Downloads folder for the newest FA report and Thrive export and fills in both boxes."
-            ).grid(row=2, column=1, sticky="w", pady=(4, 0))
+            ).grid(row=3, column=1, sticky="w", pady=(4, 0))
+        tip(ttk.Button(files, text="Save a managers file template...", command=self.save_staff_template),
+            "Saves an example managers file you can fill in, with instructions.").grid(row=3, column=1, sticky="e",
+                                                                                      pady=(4, 0))
 
         go = ttk.LabelFrame(bar, text=" Step 2: compare ", padding=8)
         go.grid(row=0, column=2, sticky="ns", padx=8)
@@ -485,9 +515,13 @@ class App(tk.Tk):
                      "One Excel file per team, in a dated folder.")
         b_one = tip(ttk.Button(top, text="Export this team...", command=self.export_team),
                     "Save the team shown here as an Excel file.")
+        b_wa = tip(ttk.Button(top, text="Copy for WhatsApp...", command=self.copy_whatsapp),
+                   "Text you can paste into WhatsApp: squad, contacts, sign-up status and direct debit, and a "
+                   "separate medical message.")
         b_each.pack(side="right")
         b_one.pack(side="right", padx=6)
-        self.export_buttons += [b_each, b_one]
+        b_wa.pack(side="right")
+        self.export_buttons += [b_each, b_one, b_wa]
         self.team_tree = self._make_tree(tab)
 
     def _build_not_paying_tab(self) -> None:
@@ -593,7 +627,7 @@ class App(tk.Tk):
         start = os.path.dirname(var.get()) if var.get() else os.path.join(os.path.expanduser("~"), "Downloads")
         path = filedialog.askopenfilename(initialdir=start if os.path.isdir(start) else None,
                                           title="Select Excel file",
-                                          filetypes=[("Excel workbooks", "*.xlsx *.xlsm"), ("All files", "*.*")])
+                                          filetypes=[("Excel or CSV files", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")])
         if path:
             var.set(path)
 
@@ -644,7 +678,14 @@ class App(tk.Tk):
             return
         finally:
             self.config(cursor="")
-        self.cfg.update(fa_path=fa_path, thrive_path=thrive_path)
+        self.staff = []
+        staff_path = self.staff_var.get().strip()
+        if staff_path:
+            try:
+                self.staff = rc.load_staff(staff_path)
+            except (rc.ReportError, OSError) as exc:
+                messagebox.showwarning("Managers file not used", f"{exc}\n\nThe comparison will carry on without it.")
+        self.cfg.update(fa_path=fa_path, thrive_path=thrive_path, staff_path=staff_path)
         added = self._suggest_unmapped(quiet=True)
         self._recompute()
         self._set_exports_enabled(True)
@@ -669,6 +710,7 @@ class App(tk.Tk):
         if self.fa_players is None:
             return
         self.result = rc.reconcile(self.fa_players, self.thrive_players, self.team_map, self._fuzzy())
+        rc.attach_staff(self.result, self.staff, self.team_map)
         counts = self.result.counts()
         attention = sum(n for k, n in counts.items() if rc.LEVELS[k] in ("bad", "warn"))
         self.summary_var.set(f"{counts.get('Matched', 0)} fully matched   |   {attention} need attention")
@@ -778,8 +820,59 @@ class App(tk.Tk):
         headers, rows = rc.team_report(self.result, label, self.medical_var.get())
         self._show_table(self.team_tree, headers, rows)
         counts = {k: sum(1 for _, src in rows if src == k) for k in SOURCE_COLOURS}
+        people = "   |   ".join(rc.staff_lines(self.result, label))
         self.team_summary_var.set(f"{len(rows)} players: {counts['Both']} in both, {counts['FA only']} FA only, "
-                                  f"{counts['Thrive only']} Thrive only")
+                                  f"{counts['Thrive only']} Thrive only" + (f"   |   {people}" if people else ""))
+
+    def save_staff_template(self) -> None:
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel workbook", "*.xlsx")],
+                                            initialfile="Managers_template.xlsx")
+        if path and self._write(lambda: rc.write_staff_template(path), f"Saved {path}"):
+            messagebox.showinfo("Saved", f"Saved the template:\n{path}\n\nFill it in, then choose it as the "
+                                         "Managers file in Step 1.")
+
+    def copy_whatsapp(self) -> None:
+        """Show WhatsApp-ready text for the chosen team, to copy and paste."""
+        label = self.team_var.get()
+        if not self._need_result() or not label:
+            return
+        if not messagebox.askokcancel("Data protection warning", WHATSAPP_WARNING, icon="warning"):
+            return
+        medical = self.medical_var.get()
+        parts = [(f"Squad {i}" if len(msgs) > 1 else "Squad", m)
+                 for msgs in [rc.whatsapp_squad(self.result, label)] for i, m in enumerate(msgs, 1)]
+        if medical:
+            msgs = rc.whatsapp_medical(self.result, label)
+            parts += [(f"Medical {i}" if len(msgs) > 1 else "Medical", m) for i, m in enumerate(msgs, 1)]
+        win = tk.Toplevel(self)
+        win.title(f"Copy for WhatsApp: {label}")
+        win.geometry("620x640")
+        ttk.Label(win, style="Hint.TLabel", wraplength=580, justify="left", text=(
+            "Pick a tab, click Copy, then paste into WhatsApp. You can edit the text first. Send the squad "
+            "message and the medical message separately, and only to the people who need them.")
+                  ).pack(anchor="w", padx=10, pady=8)
+        nb = ttk.Notebook(win)
+        nb.pack(fill="both", expand=True, padx=10)
+        boxes = []
+        for title, text in parts:
+            frame = ttk.Frame(nb)
+            box = tk.Text(frame, wrap="word", font=FONT, undo=True)
+            box.insert("1.0", text)
+            box.pack(fill="both", expand=True)
+            nb.add(frame, text=f"  {title}  ")
+            boxes.append(box)
+
+        def copy() -> None:
+            self.clipboard_clear()
+            self.clipboard_append(boxes[nb.index("current")].get("1.0", "end").strip())
+            self.status_var.set("Copied. Paste it into WhatsApp.")
+
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=10, pady=8)
+        ttk.Button(row, text="Copy to clipboard", style="Accent.TButton", command=copy).pack(side="left")
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
+        if not medical:
+            ttk.Label(row, text="  Medical message left out (tickbox is off).", style="Hint.TLabel").pack(side="left")
 
     def _medical_changed(self) -> None:
         self.cfg["medical"] = bool(self.medical_var.get())
@@ -956,6 +1049,10 @@ def self_test() -> int:
     result = rc.reconcile([], [], rc.DEFAULT_TEAM_MAP)
     with tempfile.TemporaryDirectory() as folder:
         rc.export_xlsx(os.path.join(folder, "selftest.xlsx"), result, rc.DEFAULT_TEAM_MAP)
+        template = os.path.join(folder, "managers.xlsx")
+        rc.write_staff_template(template)
+        if not rc.load_staff(template):
+            return 1
     return 0
 
 

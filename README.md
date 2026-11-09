@@ -14,6 +14,8 @@ It works entirely on your own computer. Nothing is uploaded or sent anywhere.
 - Maps Thrive teams to FA teams, with defaults built from the club's own files and a screen to change them
 - Builds **team sheets** for managers: players, contacts, medical information and consents, coloured by whether each player is in the FA, Thrive or both
 - Lists players who will not be paying (no active Thrive mandate, or not in Thrive)
+- Makes **WhatsApp-ready text** for each team (squad, contacts, sign-up and direct debit status, plus a separate medical message) for you to copy and paste, because managers do not have the tool
+- Optionally reads a **managers file** (managers, assistants and their teams) to show who looks after each team
 - Exports everything to Excel: one full workbook, or one file per team ready to send to managers
 - Keeps data protection in view: a permanent UK GDPR banner in the app and a warning every time you export
 

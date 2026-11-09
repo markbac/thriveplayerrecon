@@ -10,12 +10,13 @@ C4Container
 
   System_Boundary(app, "Thrive Player Recon - one Windows exe") {
     Container(gui, "Desktop GUI", "Python, tkinter", "File selection, results views, team sheets, team mappings, help, export buttons")
-    Container(engine, "Reconciliation engine", "Python module reconcile_core", "Reads exports, matches players, checks data quality, builds reports and writes Excel")
-    ContainerDb(settings, "Settings file", "JSON in the user profile", "Last file paths, team mappings, name fuzziness, medical option")
+    Container(engine, "Reconciliation engine", "Python module reconcile_core", "Reads exports, matches players, checks data quality, builds reports and WhatsApp text and writes Excel")
+    ContainerDb(settings, "Settings file", "JSON in the user profile", "Last file paths (including the managers file), team mappings, name fuzziness, medical option")
   }
 
   ContainerDb_Ext(fafile, "FA player report", "Excel file", "Club - Player Report, one row per player and team")
   ContainerDb_Ext(thrivefile, "Thrive data export", "Excel file", "One row per player with contacts, medical details and consents")
+  ContainerDb_Ext(stafffile, "Managers file", "Excel or CSV file, optional", "Managers, assistant managers and their teams")
   ContainerDb_Ext(outputs, "Excel outputs", "Excel files", "Full workbook, one file per team, not paying list")
 
   Rel(admin, gui, "Uses")
@@ -23,7 +24,9 @@ C4Container
   Rel(gui, settings, "Reads and writes", "JSON")
   Rel(engine, fafile, "Reads", "openpyxl")
   Rel(engine, thrivefile, "Reads", "openpyxl")
+  Rel(engine, stafffile, "Reads", "openpyxl or csv")
   Rel(engine, outputs, "Writes", "openpyxl")
+  Rel(gui, admin, "Shows WhatsApp text to copy")
 ```
 
 ## Responsibilities
