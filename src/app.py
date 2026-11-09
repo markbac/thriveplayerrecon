@@ -521,7 +521,14 @@ class App(tk.Tk):
         b_each.pack(side="right")
         b_one.pack(side="right", padx=6)
         b_wa.pack(side="right")
-        self.export_buttons += [b_each, b_one, b_wa]
+        b_mp = tip(ttk.Button(top, text="Copy manager phone", command=lambda: self.copy_phone("manager")),
+                   "Copies the manager's phone number from the managers file, to paste into WhatsApp and find "
+                   "their chat. Then use Copy for WhatsApp to send the team details.")
+        b_ap = tip(ttk.Button(top, text="Copy assistant phone", command=lambda: self.copy_phone("assistant")),
+                   "Copies the assistant manager's phone number from the managers file.")
+        b_ap.pack(side="right", padx=(0, 6))
+        b_mp.pack(side="right", padx=(0, 6))
+        self.export_buttons += [b_each, b_one, b_wa, b_mp, b_ap]
         self.team_tree = self._make_tree(tab)
 
     def _build_not_paying_tab(self) -> None:
@@ -830,6 +837,20 @@ class App(tk.Tk):
         if path and self._write(lambda: rc.write_staff_template(path), f"Saved {path}"):
             messagebox.showinfo("Saved", f"Saved the template:\n{path}\n\nFill it in, then choose it as the "
                                          "Managers file in Step 1.")
+
+    def copy_phone(self, kind: str) -> None:
+        """Put a team's manager or assistant phone number on the clipboard."""
+        label = self.team_var.get()
+        if not self._need_result() or not label:
+            return
+        phone = rc.staff_phones(self.result, label, kind)
+        if not phone:
+            messagebox.showinfo("No phone number", f"No {kind} phone number for {label} in the managers file. "
+                                "Choose a managers file in Step 1 and click Reconcile again.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(phone)
+        self.status_var.set(f"Copied {kind} phone for {label}: {phone}")
 
     def copy_whatsapp(self) -> None:
         """Show WhatsApp-ready text for the chosen team, to copy and paste."""

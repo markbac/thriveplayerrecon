@@ -126,7 +126,7 @@ To show manager and assistant manager names on team sheets, Excel files and mess
 | One row per person | Name, Role (Manager or Assistant manager), Team(s), and optionally Phone and Email |
 | One row per team | Team, Manager, Assistant manager |
 
-Several teams or names in one cell can be separated by commas. Team names are matched to the FA and Thrive teams (for example `U12 Black`). Anything that does not match, and any team with no manager, is listed in the Summary sheet of the full workbook.
+If the file has phone numbers, **Copy manager phone** and **Copy assistant phone** on the Team sheets tab put the number on the clipboard. Paste it into WhatsApp to find their chat, then use **Copy for WhatsApp** to send the team details. Several teams or names in one cell can be separated by commas. Team names are matched to the FA and Thrive teams (for example `U12 Black`). Anything that does not match, and any team with no manager, is listed in the Summary sheet of the full workbook.
 
 ## Team mappings
 
