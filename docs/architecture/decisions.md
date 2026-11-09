@@ -73,3 +73,11 @@ Short records of the main choices, with the reasons and what was given up.
 **Why:** A deliberate scope choice for the first release.
 
 **Cost:** regressions in matching rules are caught only by use. Adding tests for the engine is the next quality step, and the engine is already free of GUI code so that is straightforward.
+
+## 11. WhatsApp text and an optional managers file
+
+**Decision:** Managers do not have the tool, so it produces plain text for the administrator to copy and paste into WhatsApp: a squad message and a separate medical message, each with a data protection footnote. Manager names come from an optional Excel or CSV file read in two layouts.
+
+**Why:** Plain text is easy to copy, works on any phone and needs no attachment. Medical data is kept in its own message so it can go to fewer people. A tolerant loader suits a file the club writes by hand, and a template removes guesswork.
+
+**Cost:** WhatsApp copies the data onto every device in the chat, outside the club's control. The tool warns before showing the text and the guidance says to send it only to the people who need it.

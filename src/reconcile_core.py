@@ -141,6 +141,23 @@ class ThrivePlayer:
 
 
 @dataclass
+class Staff:
+    """A manager or assistant manager from the optional managers file."""
+    name: str
+    role: str = "Manager"
+    teams: List[str] = field(default_factory=list)  # team names as written in the file
+    phone: str = ""
+    email: str = ""
+
+    @property
+    def kind(self) -> str:
+        r = self.role.lower()
+        if any(w in r for w in ("assist", "asst", "deputy")):
+            return "assistant"
+        return "manager" if (not r or "manager" in r or "head coach" in r) else "other"
+
+
+@dataclass
 class Row:
     result: str
     confidence: str
@@ -170,6 +187,9 @@ class Result:
     club_prefix: str
     # team label -> [(source, row)] where source is "Both", "FA only" or "Thrive only"
     teams: Dict[str, List[Tuple[str, Row]]] = field(default_factory=dict)
+    # team label -> staff assigned, and notes about the managers file (set by attach_staff)
+    staff: Dict[str, List[Staff]] = field(default_factory=dict)
+    staff_issues: List[str] = field(default_factory=list)
 
     def counts(self) -> Counter:
         return Counter(r.result for r in self.rows)
@@ -809,6 +829,250 @@ def not_paying_report(result: Result, today: Optional[date] = None):
     return headers, rows
 
 
+# --------------------------------------------------------------------------- managers file
+
+_TEAM_HEADERS = ["team", "teams", "team(s)", "assigned teams", "assigned team", "age group", "squad"]
+_NO_PEOPLE = ("phone", "mobile", "tel", "email", "e-mail")
+
+
+def _split_list(text: str) -> List[str]:
+    return [p.strip() for p in re.split(r"\s*(?:,|;|/|&|\n|\band\b)\s*", text or "") if p.strip()]
+
+
+def _read_sheets(path: str) -> List[List[tuple]]:
+    """Every sheet of an Excel file, or the single table of a CSV file, as lists of row tuples."""
+    if path.lower().endswith(".csv"):
+        import csv
+        try:
+            with open(path, newline="", encoding="utf-8-sig") as fh:
+                return [[tuple(r) for r in csv.reader(fh)]]
+        except OSError as exc:
+            raise ReportError(f"Could not open {os.path.basename(path)}: {exc}") from exc
+    import openpyxl
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception as exc:
+        raise ReportError(f"Could not open {os.path.basename(path)}: {exc}") from exc
+    try:
+        return [list(ws.iter_rows(values_only=True)) for ws in wb.worksheets]
+    finally:
+        wb.close()
+
+
+STAFF_HELP = ("Expected either: a Name column, a Role column (Manager or Assistant manager) and a Team(s) column, "
+              "or one row per team with Team, Manager and Assistant manager columns.")
+
+
+def load_staff(path: str) -> List[Staff]:
+    """Read the optional managers file (.xlsx or .csv).
+
+    Two layouts are understood, found from the column headings:
+    - one row per person: Name, Role, Team(s), and optionally Phone and Email
+    - one row per team: Team, Manager, Assistant manager (several names may be separated by commas)
+    A person can have several teams in one cell, separated by commas, slashes or 'and'.
+    """
+    people: Dict[tuple, Staff] = {}
+
+    def add(name: str, role: str, teams: List[str], phone: str = "", email: str = "") -> None:
+        key = (name.lower(), Staff(name, role).kind)
+        p = people.setdefault(key, Staff(name, role))
+        p.teams += [t for t in teams if t not in p.teams]
+        p.phone, p.email = p.phone or phone, p.email or email
+
+    for rows in _read_sheets(path):
+        for i, row in enumerate(rows[:15]):
+            cols = {_hdr(c): j for j, c in enumerate(row) if _hdr(c)}
+            team_i = _find_col(cols, _TEAM_HEADERS)
+            if team_i is None:
+                continue
+            name_i = _find_col(cols, ["name", "full name", "person", "staff"])
+            role_i = _find_col(cols, ["role", "position", "job"])
+            phone_i = _find_col(cols, ["phone", "mobile", "telephone", "tel"])
+            email_i = _find_col(cols, ["email", "e-mail"])
+            mgr = [j for h, j in cols.items() if "manager" in h and "assist" not in h
+                   and not any(x in h for x in _NO_PEOPLE) and j != team_i]
+            asst = [j for h, j in cols.items() if any(w in h for w in ("assist", "asst", "deputy"))
+                    and not any(x in h for x in _NO_PEOPLE) and j != team_i]
+            if name_i is None and not (mgr or asst):
+                continue
+            for r in rows[i + 1:]:
+                teams = _split_list(_cell(r, team_i))
+                if name_i is not None:  # one row per person
+                    name = _cell(r, name_i)
+                    if name:
+                        add(name, _cell(r, role_i) or "Manager", teams, _cell(r, phone_i), _cell(r, email_i))
+                else:  # one row per team
+                    for j in mgr:
+                        for name in _split_list(_cell(r, j)):
+                            add(name, "Manager", teams)
+                    for j in asst:
+                        for name in _split_list(_cell(r, j)):
+                            add(name, "Assistant manager", teams)
+            if people:
+                return list(people.values())
+    raise ReportError(f"{os.path.basename(path)} does not look like a managers file. {STAFF_HELP}")
+
+
+def write_staff_template(path: str) -> None:
+    """Save an example managers file with instructions."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Managers"
+    ws.append(["Name", "Role", "Team(s)", "Phone", "Email"])
+    ws.append(["Alex Example", "Manager", "U12 Black", "07700 900010", "alex@example.com"])
+    ws.append(["Pat Sample", "Assistant manager", "U12 Black, U10 Blue", "07700 900011", ""])
+    ws.append(["Sam Demo", "Manager", "U8 Red", "", ""])
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for col, w in zip("ABCDE", (22, 20, 30, 16, 28)):
+        ws.column_dimensions[col].width = w
+    notes = wb.create_sheet("How to fill in")
+    for line in (
+        "Replace the example rows with your own. Delete this sheet if you like.",
+        "Name: the manager or assistant manager.",
+        "Role: Manager or Assistant manager. Blank means Manager.",
+        "Team(s): the team or teams they look after, separated by commas. Use the same names as the FA or Thrive, "
+        "for example U12 Black.",
+        "Phone and Email are optional.",
+        "Alternative layout: one row per team with the columns Team, Manager and Assistant manager. "
+        "Several names in one cell can be separated by commas.",
+        "A CSV file with the same columns also works.",
+        "This file contains personal data about adults. Keep it secure.",
+    ):
+        notes.append([line])
+    notes.column_dimensions["A"].width = 110
+    wb.save(path)
+
+
+def attach_staff(result: Result, staff: List[Staff], team_map: Dict[str, Optional[str]]) -> None:
+    """Match each person's teams to the team labels in the result and note anything that does not fit."""
+    result.staff, result.staff_issues = {}, []
+    if not staff:
+        return
+    prefix = result.club_prefix
+    forms = {_team_form(label.replace(" (Thrive)", ""), ""): label for label in result.teams}
+    via_thrive = {}
+    for thrive_name, fa_name in team_map.items():  # a Thrive team name written in the managers file
+        if fa_name:
+            short = fa_name[len(prefix):].strip() if prefix and fa_name.startswith(prefix) else fa_name
+            via_thrive[_team_form(thrive_name, "")] = short
+    for person in staff:
+        for text in person.teams:
+            form = _team_form(text, prefix)
+            label = forms.get(form) or (via_thrive.get(form) if via_thrive.get(form) in result.teams else None)
+            if label is None:
+                result.staff_issues.append(f"{person.name}: team '{text}' was not found in the FA or Thrive files")
+            elif person not in result.staff.setdefault(label, []):
+                result.staff[label].append(person)
+    for label in team_labels(result):
+        if not label.endswith("(Thrive)") and not any(p.kind == "manager" for p in result.staff.get(label, [])):
+            result.staff_issues.append(f"Team {label} has no manager listed")
+
+
+def staff_lines(result: Result, label: str) -> List[str]:
+    """['Manager: A', 'Assistant managers: B, C'] for a team, or an empty list."""
+    lines = []
+    people = result.staff.get(label, [])
+    for kind, title in (("manager", "Manager"), ("assistant", "Assistant manager"), ("other", "Other staff")):
+        names = [p.name for p in people if p.kind == kind]
+        if names:
+            lines.append(f"{title}{'s' if len(names) > 1 and kind != 'other' else ''}: {', '.join(names)}")
+    return lines
+
+
+# --------------------------------------------------------------------------- WhatsApp text
+
+WHATSAPP_LIMIT = 3500  # characters per message part, so long teams are split into readable parts
+SQUAD_FOOTNOTE = ("_Data protection: this message contains personal data about children (UK GDPR). Use it only to "
+                  "run the team, do not forward or share it, keep it secure and delete it when no longer needed._")
+MEDICAL_FOOTNOTE = ("_Data protection: this message contains children's medical information, which is special "
+                    "category data under UK GDPR. Use it only to keep players safe, do not forward or share it, "
+                    "keep it secure and delete it when no longer needed. It comes from Thrive and may be "
+                    "incomplete._")
+
+
+def _phone(text: str) -> str:
+    out = []
+    for part in _split_list(text.replace("/", ",")):
+        digits = re.sub(r"\D", "", part)
+        out.append(f"{digits[:5]} {digits[5:]}" if len(digits) == 11 and digits.startswith("0") else part)
+    return ", ".join(out)
+
+
+def _pack_messages(head: List[str], blocks: List[str], footnote: str) -> List[str]:
+    """Fill messages with whole player blocks up to the length limit, repeating the heading on each."""
+    fixed = len("\n".join(head)) + len(footnote) + 8
+    parts: List[List[str]] = [[]]
+    size = fixed
+    for block in blocks:
+        if parts[-1] and size + len(block) + 2 > WHATSAPP_LIMIT:
+            parts.append([])
+            size = fixed
+        parts[-1].append(block)
+        size += len(block) + 2
+    messages = []
+    for n, chunk in enumerate(parts, 1):
+        heading = list(head)
+        if len(parts) > 1:
+            heading[0] += f" (part {n} of {len(parts)})"
+        messages.append("\n".join(heading) + "\n\n" + "\n\n".join(chunk) + "\n\n" + footnote)
+    return messages
+
+
+def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> List[str]:
+    """WhatsApp-ready squad message(s): sign-up status, direct debit and contacts for each player."""
+    today = today or date.today()
+    members = result.teams.get(label, [])
+    head = [f"*{label}* squad ({len(members)} players)"] + [f"_{x}_" for x in staff_lines(result, label)] \
+        + [f"Updated {today:%d/%m/%Y}"]
+    blocks = []
+    for source, row in members:
+        name, _dob, age = _name_dob(row, today)
+        t = row.th.fields if row.th else {}
+        f = row.fa.fields if row.fa else {}
+        mark = lambda ok: "\u2705" if ok else "\u274c"  # noqa: E731  tick and cross
+        lines = [f"*{name}*" + (f" ({age})" if age != "" else ""),
+                 f"FA {mark(source in ('Both', 'FA only'))}  Thrive {mark(row.th is not None)}  "
+                 f"Direct debit {mark(bool(row.th and row.th.mandate))}"]
+        contact = " ".join(x for x in (t.get("account_owner") or t.get("pg_name") or f.get("parent_name", ""),
+                                       _phone(t.get("owner_phone", ""))) if x)
+        emergency = " ".join(x for x in (f.get("emergency", ""), _phone(f.get("emergency_phone", ""))) if x)
+        if contact:
+            lines.append(f"Contact: {contact}")
+        if emergency and emergency != contact:
+            lines.append(f"Emergency: {emergency}")
+        blocks.append("\n".join(lines))
+    return _pack_messages(head, blocks, SQUAD_FOOTNOTE)
+
+
+def whatsapp_medical(result: Result, label: str, today: Optional[date] = None) -> List[str]:
+    """WhatsApp-ready medical alert message(s): only players with medical information recorded."""
+    today = today or date.today()
+    members = result.teams.get(label, [])
+    blocks = []
+    for _source, row in members:
+        t = row.th.fields if row.th else {}
+        if _medical_values(row)[0] != "Yes":
+            continue
+        name, _dob, age = _name_dob(row, today)
+        lines = [f"*{name}*" + (f" ({age})" if age != "" else "")]
+        for title, key in (("Medical", "conditions"), ("Medicines", "medicines"), ("Allergies", "allergies"),
+                           ("Behavioural", "behavioural"), ("Disabilities", "disabilities"),
+                           ("Other", "other"), ("Notes", "notes")):
+            if _meaningful(t.get(key, "")):
+                lines.append(f"{title}: {t[key]}")
+        if len(lines) == 1:
+            lines.append("Medical conditions recorded but no details given")
+        blocks.append("\n".join(lines))
+    head = [f"*{label}* medical alerts",
+            f"{len(blocks)} of {len(members)} players have medical information recorded", f"Updated {today:%d/%m/%Y}"]
+    if not blocks:
+        blocks = ["No medical information is recorded for this team."]
+    return _pack_messages(head, blocks, MEDICAL_FOOTNOTE)
+
+
 # --------------------------------------------------------------------------- Excel export
 
 COLUMNS = [
@@ -869,9 +1133,9 @@ def _result_rows(rows):
     return [([getattr(r, a) for _, a, _ in COLUMNS], _FILLS[r.level]) for r in rows]
 
 
-def _team_title(label, rows):
+def _team_title(label, rows, staff=()):
     counts = Counter(src for _, src in rows)
-    return [f"Team: {label}", f"Generated {datetime.now():%d/%m/%Y %H:%M}",
+    return [f"Team: {label}", *staff, f"Generated {datetime.now():%d/%m/%Y %H:%M}",
             f"{len(rows)} players   |   Both: {counts['Both']}   FA only: {counts['FA only']}   "
             f"Thrive only: {counts['Thrive only']}",
             "Colour key: green = in both FA and Thrive, orange = FA only, blue = Thrive only", CONFIDENTIAL]
@@ -908,10 +1172,19 @@ def export_xlsx(path: str, result: Result, team_map: Dict[str, Optional[str]],
     ws.cell(r + 3, 2, len(np_rows))
     ws.cell(r + 5, 1, "Teams").font = Font(bold=True)
     ws.cell(r + 5, 2, "Players").font = Font(bold=True)
+    if result.staff:
+        ws.cell(r + 5, 3, "Manager(s) and assistants").font = Font(bold=True)
     for i, label in enumerate(team_labels(result), r + 6):
         ws.cell(i, 1, label)
         ws.cell(i, 2, len(result.teams[label]))
-    ws.cell(r + 7 + len(result.teams), 1, CONFIDENTIAL).font = Font(color="C00000")
+        if result.staff:
+            ws.cell(i, 3, "   ".join(staff_lines(result, label)))
+    end = r + 7 + len(result.teams)
+    for note in result.staff_issues:
+        ws.cell(end, 1, "Managers file: " + note)
+        end += 1
+    ws.cell(end + 1, 1, CONFIDENTIAL).font = Font(color="C00000")
+    ws.column_dimensions["C"].width = 60
     ws.column_dimensions["A"].width = 38
     ws.column_dimensions["B"].width = 40
 
@@ -925,7 +1198,8 @@ def export_xlsx(path: str, result: Result, team_map: Dict[str, Optional[str]],
     for label in team_labels(result):
         headers, rows = team_report(result, label, include_medical)
         _write_table(wb.create_sheet(_sheet_name(wb, f"Team {label}")), headers,
-                     [(v, SOURCE_FILLS[src]) for v, src in rows], _team_title(label, rows), fill_cols=7)
+                     [(v, SOURCE_FILLS[src]) for v, src in rows],
+                     _team_title(label, rows, staff_lines(result, label)), fill_cols=7)
 
     ms = wb.create_sheet("Team mapping")
     ms.append(["Thrive team", "FA team"])
@@ -944,7 +1218,7 @@ def _team_workbook(result: Result, label: str, include_medical: bool):
     headers, rows = team_report(result, label, include_medical)
     wb.active.title = _sheet_name(wb, f"Team {label}")
     _write_table(wb.active, headers, [(v, SOURCE_FILLS[src]) for v, src in rows],
-                 _team_title(label, rows), fill_cols=7)
+                 _team_title(label, rows, staff_lines(result, label)), fill_cols=7)
     return wb
 
 

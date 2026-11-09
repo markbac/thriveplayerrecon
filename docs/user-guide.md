@@ -97,6 +97,7 @@ The **Not paying** tab lists players with no active Thrive mandate, plus players
 | Export team files for managers | Saves one Excel file per team into a dated folder, ready to send. Each manager should receive only their own team's file |
 | Export full workbook | One Excel file with every view, the not paying list and a sheet for each team |
 | Export this team (Team sheets tab) | Saves the team on screen |
+| Copy for WhatsApp (Team sheets tab) | Text to paste into WhatsApp, see below |
 | Export this list (Not paying tab) | Saves the not paying list |
 
 Untick **Include medical details** to leave medical information out of team sheets and exports.
@@ -104,6 +105,28 @@ Untick **Include medical details** to leave medical information out of team shee
 A data protection warning appears every time you click an export button. Read it, then click **OK** to continue or **Cancel** to stop. Nothing is created if you cancel. A reminder banner also stays at the top of the app.
 
 > **Warning:** the files contain children's personal details. Only send a team's file to that team's manager, keep files secure and delete them when finished. See [data protection](data-protection.md).
+
+## Copy for WhatsApp
+
+Managers do not use this tool, so you can send them text instead of a file. On the **Team sheets** tab, choose a team and click **Copy for WhatsApp**. A warning appears first. Then a window shows:
+
+- a **Squad** message: each player's age, whether they are in the FA and Thrive, whether they have a direct debit mandate, and the parent or carer contact and emergency contact
+- a separate **Medical** message listing only players with medical information recorded (not shown if **Include medical details** is unticked)
+
+Each message ends with a data protection footnote. Long teams are split into parts, shown as tabs. You can edit the text, click **Copy to clipboard**, then paste into WhatsApp.
+
+> **Warning:** send these only to the manager and assistant who need them, never to a large group. Ask them not to forward the messages and to delete them when finished. WhatsApp keeps copies on every device in the chat.
+
+## Managers file (optional)
+
+To show manager and assistant manager names on team sheets, Excel files and messages, choose a **Managers file** in Step 1. Click **Save a managers file template** for an example. Two layouts work, found from the column headings:
+
+| Layout | Columns |
+| --- | --- |
+| One row per person | Name, Role (Manager or Assistant manager), Team(s), and optionally Phone and Email |
+| One row per team | Team, Manager, Assistant manager |
+
+Several teams or names in one cell can be separated by commas. Team names are matched to the FA and Thrive teams (for example `U12 Black`). Anything that does not match, and any team with no manager, is listed in the Summary sheet of the full workbook.
 
 ## Team mappings
 

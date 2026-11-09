@@ -44,6 +44,13 @@ classDiagram
     rows
     club_prefix
     teams
+    staff
+    staff_issues
+  }
+  class Staff {
+    name
+    role
+    teams
   }
   class TeamMapping {
     thrive team to FA team or ignore
@@ -52,6 +59,7 @@ classDiagram
   Result "1" o-- "many" Row : contains
   Row "1" --> "0..1" FAPlayer : fa
   Row "1" --> "0..1" ThrivePlayer : th
+  Result "1" o-- "many" Staff : staff by team
   TeamMapping ..> Result : used to build
 ```
 
@@ -62,6 +70,7 @@ classDiagram
 | `FAPlayer` | FA report | One per FAN ID. `teams` maps each FA team to its registration status. `fields` holds email, parent or carer, emergency contact and consent |
 | `ThrivePlayer` | Thrive export | One per row. `teams` is the de-duplicated list from the comma separated cell. `fields` holds contacts, medical information and consents |
 | `Row` | One pairing or one unpaired player | Carries the source records, so reports can reach any field without another lookup |
+| `Staff` | A manager or assistant manager from the optional managers file | `kind` is manager, assistant or other, from the role text |
 | `Result` | The whole reconciliation | `teams` maps a team label to a list of source and row, where source is Both, FA only or Thrive only |
 | Team mapping | Settings file and defaults | A dictionary from Thrive team to FA team name, or to none for ignore |
 

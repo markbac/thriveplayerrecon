@@ -18,4 +18,6 @@ First release.
 - Option to leave medical details out of exports
 - Data protection: a permanent UK GDPR banner in the app, a warning each time any export is clicked, and a confidentiality line on every exported sheet
 - Easier use: find latest exports in Downloads, wrong-way-round file detection, help, tooltips, details window for any row
+- Copy for WhatsApp: plain text for a team with squad, contacts, FA and Thrive sign-up status and direct debit status, plus a separate medical message, each with a data protection footnote and split into parts if long
+- Optional managers file (Excel or CSV, two layouts) so manager and assistant manager names appear on team sheets, Excel files and WhatsApp text, with a template to fill in and a warning for teams with no manager
 - Build and release pipeline that publishes the Windows exe from a version tag

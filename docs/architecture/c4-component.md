@@ -9,6 +9,8 @@ C4Component
   Container_Boundary(engine, "Reconciliation engine") {
     Component(loaders, "File loaders", "load_fa, load_thrive, detect_kind, find_latest_exports", "Find columns by heading, read players, recognise which file is which")
     Component(matcher, "Player matcher", "name and date of birth scoring, pair_up", "Scores every candidate pair and pairs players one to one, best score first")
+    Component(staff, "Managers file", "load_staff, attach_staff, write_staff_template", "Reads managers and assistants in two layouts and matches their teams to team labels")
+    Component(whatsapp, "WhatsApp text builders", "whatsapp_squad, whatsapp_medical", "Plain text messages split into parts, each with a data protection footnote")
     Component(mapping, "Team mapping", "DEFAULT_TEAM_MAP, suggest_mapping, club_prefix", "Maps Thrive teams to FA teams and suggests mappings for new teams")
     Component(quality, "Data quality checks", "age, parent and capitalisation checks", "Flags adult dates of birth, parent names, players too old for a team, duplicates")
     Component(reconciler, "Reconciler", "reconcile", "Combines the above into one result row per player and builds team membership")
@@ -21,6 +23,8 @@ C4Component
   Rel(reconciler, mapping, "Resolves teams using")
   Rel(reconciler, quality, "Applies")
   Rel(reconciler, reports, "Provides result rows to")
+  Rel(staff, reconciler, "Adds staff to the result of")
+  Rel(reports, whatsapp, "Shares team membership with")
   Rel(reports, exporter, "Provides tables to")
 ```
 
@@ -31,6 +35,8 @@ C4Component
 | Team mapping | A Thrive team maps to an FA team, to ignore, or is unmapped. Unmapped teams are reported, never silently dropped |
 | Data quality checks | Rules listed in [matching algorithm](matching-algorithm.md#data-quality-rules) |
 | Reconciler | Classifies each player into a result and records, per team, whether the player is in both systems, FA only or Thrive only |
+| Managers file | Tolerant loader found by column headings, with a template writer and a list of unmatched teams and teams without a manager |
+| WhatsApp text builders | Build the squad and medical messages from the same team data as the sheets |
 | Report builders | One function per report. Both the screen and Excel use them, so what you see is what you export |
 | Excel exporter | One shared table writer, so every sheet has the same look and behaviour |
 

@@ -25,6 +25,10 @@ The FA report itself carries a warning that copies must be destroyed when no lon
 | Marked confidential | Every exported team sheet carries a confidentiality line |
 | Repository safeguard | `.gitignore` excludes `.xlsx` files so exports are not committed by accident |
 
+## WhatsApp and the managers file
+
+Pasting into WhatsApp copies personal data onto every device in the chat and into backups, outside the club's control. The tool therefore warns before showing the text, adds a data protection footnote to every message, and keeps medical details in a separate message. Send it only to the manager and assistant who need it, never to a large group, and ask them to delete it afterwards. The managers file holds adults' names and optionally phone numbers and emails: keep it secure like the other files. It is never committed to the repository.
+
 ## What users should do
 
 1. Download the exports only when needed and delete them when finished
