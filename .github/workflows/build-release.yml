@@ -144,7 +144,13 @@ jobs:
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          gh release create "$TAG" release/*.exe release/SHA256SUMS.txt \
-            --title "Player Reconcile $VERSION" \
-            --notes-file notes.md \
-            --verify-tag
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # a release was already made by hand from the tag: add the files and fill in the title and notes
+            gh release upload "$TAG" release/*.exe release/SHA256SUMS.txt --clobber
+            gh release edit "$TAG" --title "Player Reconcile $VERSION" --notes-file notes.md
+          else
+            gh release create "$TAG" release/*.exe release/SHA256SUMS.txt \
+              --title "Player Reconcile $VERSION" \
+              --notes-file notes.md \
+              --verify-tag
+          fi
