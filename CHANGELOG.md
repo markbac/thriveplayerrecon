@@ -4,6 +4,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+- Not paying tab hides columns that are empty for every player, and says which ones. Exports are unaffected
+
 ## [1.1.1] - 2026-11-09
 
 ### Fixed

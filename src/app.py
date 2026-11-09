@@ -585,13 +585,20 @@ class App(tk.Tk):
                                   "count": count_var, "payload": {}}
         search_var.trace_add("write", lambda *_a: self._render_table(tree))
 
-    def _set_table(self, tree, headers, rows, cap: int = 320) -> None:
+    def _set_table(self, tree, headers, rows, cap: int = 320, hide_empty: bool = False, keep: int = 1) -> None:
+        """Load a table. With hide_empty, columns blank for every row are hidden (the first `keep` always show).
+        They stay in the data, so the details window and exports are unaffected."""
         t = self.tables[str(tree)]
         if t["headers"] != list(headers):
             t["sort"] = (None, False)
         t["headers"], t["rows"] = list(headers), rows
         tree["columns"] = list(range(len(headers)))
         self._fit_columns(tree, headers, [r[0] for r in rows], cap)
+        shown = [i for i in range(len(headers))
+                 if not hide_empty or i < keep or any(str(r[0][i]).strip() for r in rows)]
+        tree["displaycolumns"] = shown if hide_empty and rows else "#all"
+        hidden = [headers[i] for i in range(len(headers)) if i not in shown] if rows else []
+        t["hidden"] = f"{len(hidden)} empty column(s) hidden: {', '.join(hidden)}" if hidden else ""
         self._render_table(tree)
 
     def _sort_table(self, tree, col: int) -> None:
@@ -617,7 +624,8 @@ class App(tk.Tk):
         for shown, tags, payload, _text in rows:
             t["payload"][tree.insert("", "end", values=shown, tags=tags)] = payload
         total = len(t["rows"])
-        t["count"].set(f"Showing {len(rows)} of {total}" if term else "")
+        count = f"Showing {len(rows)} of {total}" if term else ""
+        t["count"].set("   ".join(x for x in (count, t.get("hidden", "")) if x))
 
     def _build_team_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
@@ -1023,7 +1031,8 @@ class App(tk.Tk):
         self._fit_columns(self.tree, [t for t, _a, _w in rc.COLUMNS], all_rows, cap=360)
         headers, np_rows = rc.not_paying_report(self.result)
         self._set_table(self.np_tree, headers,
-                        [([_cell(v) for v in values], (source,), None, "") for values, source in np_rows])
+                        [([_cell(v) for v in values], (source,), None, "") for values, source in np_rows],
+                        hide_empty=True)
         self.nb.tab(self.np_tab, text=f"  Not paying ({len(np_rows)})  ")
         labels = rc.team_labels(self.result)
         self.team_box["values"] = labels
