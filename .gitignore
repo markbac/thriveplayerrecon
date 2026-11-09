@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Player data must never be committed (children's personal and medical details)
+*.xlsx
+*.xlsm
+~$*
+Team files */
