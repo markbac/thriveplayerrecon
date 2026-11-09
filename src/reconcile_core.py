@@ -982,6 +982,12 @@ def staff_lines(result: Result, label: str) -> List[str]:
     return lines
 
 
+def staff_phones(result: Result, label: str, kind: str = "manager") -> str:
+    """Phone numbers (digits only, ready to paste into WhatsApp search) for a team's managers or assistants."""
+    numbers = [re.sub(r"[^\d+]", "", p.phone) for p in result.staff.get(label, []) if p.kind == kind and p.phone]
+    return ", ".join(n for n in numbers if n)
+
+
 # --------------------------------------------------------------------------- WhatsApp text
 
 WHATSAPP_LIMIT = 3500  # characters per message part, so long teams are split into readable parts
