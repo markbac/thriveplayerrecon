@@ -28,6 +28,8 @@ from typing import Dict, List, Optional, Tuple
 from version import __version__
 
 IGNORE = None  # mapping value meaning "this Thrive team has no FA equivalent"
+# Team-sheet source for players in such a team (U4-U6, training groups): FA registration is not needed
+NO_FA = "No FA needed"
 
 # Default Thrive team -> FA team mapping, derived from the first pair of exports.
 # Thrive values on the left, FA team names on the right, None = ignore.
@@ -55,7 +57,8 @@ DEFAULT_TEAM_MAP: Dict[str, Optional[str]] = {
     "U16 Blue": _CLUB + "U16 Blue",
     "U16 Red": _CLUB + "U16 Red",
     "U18 Black": _CLUB + "U18 Black",
-    # Thrive-only groups with no FA registration
+    # Thrive-only groups with no FA registration: still checked for a mandate, not for the FA
+    "U04": IGNORE,
     "U05": IGNORE,
     "U06": IGNORE,
     "U7-8 Training": IGNORE,
@@ -710,8 +713,10 @@ def reconcile(fa: List[FAPlayer], thrive: List[ThrivePlayer],
             source = "Both" if team in active and team in expected else "FA only" if team in active else "Thrive only"
             teams.setdefault(short(team), []).append((source, row))
         for name in (row.th.teams if row.th else []):
-            if lookup.get(_tkey(name), "?") is IGNORE or _tkey(name) not in lookup:
+            if _tkey(name) not in lookup:  # unmapped: still needs a decision, so flag as Thrive only
                 teams.setdefault(f"{name} (Thrive)", []).append(("Thrive only", row))
+            elif lookup[_tkey(name)] is IGNORE:  # no FA team exists for this group
+                teams.setdefault(f"{name} (Thrive)", []).append((NO_FA, row))
     for members in teams.values():
         members.sort(key=lambda m: ((m[1].fa_name or m[1].thrive_name).split()[-1].lower(),
                                     (m[1].fa_name or m[1].thrive_name).lower()))
@@ -724,14 +729,15 @@ def reconcile(fa: List[FAPlayer], thrive: List[ThrivePlayer],
 RESULT_TABS = [
     ("All players", lambda r: True),
     ("Needs attention", lambda r: r.level in ("bad", "warn")),
-    ("In Thrive, not in FA", lambda r: r.result.startswith("Thrive only")),
+    ("In Thrive, not in FA", lambda r: r.result == "Thrive only"),
+    ("No FA team (U4-U6, training)", lambda r: r.result == "Thrive only (expected)"),
     ("In FA, not in Thrive", lambda r: r.result.startswith("FA only")),
     ("Check match", lambda r: r.result == "Check match"),
     ("Team differs", lambda r: r.result == "Matched (team differs)"),
     ("Data quality", lambda r: bool(r.dq)),
 ]
 
-SOURCE_FILLS = {"Both": "E2F0D9", "FA only": "FCE4D6", "Thrive only": "DDEBF7"}
+SOURCE_FILLS = {"Both": "E2F0D9", "FA only": "FCE4D6", "Thrive only": "DDEBF7", NO_FA: "EDEDED"}
 CONFIDENTIAL = ("CONFIDENTIAL: contains children's personal data protected by UK GDPR. Share only with those who "
                 "need it, keep it secure and delete it when finished.")
 
@@ -750,7 +756,18 @@ def _meaningful(value: str) -> bool:
 
 
 def _source(row: Row) -> str:
-    return "Both" if row.fa and row.th else "FA only" if row.fa else "Thrive only"
+    if row.fa and row.th:
+        return "Both"
+    if row.fa:
+        return "FA only"
+    return NO_FA if row.result == "Thrive only (expected)" else "Thrive only"
+
+
+def _fa_mark(source: str) -> str:
+    """WhatsApp FA status: tick, cross, or 'not needed' for groups with no FA team."""
+    if source == NO_FA:
+        return "FA not needed"
+    return "FA " + ("✅" if source in ("Both", "FA only") else "❌")
 
 
 def _name_dob(row: Row, today: date):
@@ -1073,7 +1090,7 @@ def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> 
         f = row.fa.fields if row.fa else {}
         mark = lambda ok: "\u2705" if ok else "\u274c"  # noqa: E731  tick and cross
         lines = [f"*{name}*" + (f" ({age})" if age != "" else ""),
-                 f"FA {mark(source in ('Both', 'FA only'))}  Thrive {mark(row.th is not None)}  "
+                 f"{_fa_mark(source)}  Thrive {mark(row.th is not None)}  "
                  f"Direct debit {mark(bool(row.th and row.th.mandate))}"]
         contact = " ".join(x for x in (t.get("account_owner") or t.get("pg_name") or f.get("parent_name", ""),
                                        _phone(t.get("owner_phone", ""))) if x)
@@ -1124,8 +1141,7 @@ def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optio
         lines = [f"*{label}*"]
         for source, row in members:
             name = row.fa_name or row.thrive_name
-            in_fa = source in ("Both", "FA only") if label != "No team" else row.fa is not None
-            lines.append(f"{name} ({label})\n   FA {mark(in_fa)}  Thrive {mark(row.th is not None)}  "
+            lines.append(f"{name} ({label})\n   {_fa_mark(source)}  Thrive {mark(row.th is not None)}  "
                          f"Active mandate {mark(bool(row.th and row.th.mandate))}")
             total += 1
         if len(lines) == 1:
@@ -1226,8 +1242,9 @@ def _team_title(label, rows, staff=()):
     counts = Counter(src for _, src in rows)
     return [f"Team: {label}", *staff, f"Generated {datetime.now():%d/%m/%Y %H:%M}",
             f"{len(rows)} players   |   Both: {counts['Both']}   FA only: {counts['FA only']}   "
-            f"Thrive only: {counts['Thrive only']}",
-            "Colour key: green = in both FA and Thrive, orange = FA only, blue = Thrive only", CONFIDENTIAL]
+            f"Thrive only: {counts['Thrive only']}" + (f"   No FA needed: {counts[NO_FA]}" if counts[NO_FA] else ""),
+            "Colour key: green = in both FA and Thrive, orange = FA only, blue = Thrive only, "
+            "grey = Thrive group with no FA team (only the mandate is checked)", CONFIDENTIAL]
 
 
 def export_xlsx(path: str, result: Result, team_map: Dict[str, Optional[str]],

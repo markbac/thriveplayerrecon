@@ -54,7 +54,7 @@ Useful things to know:
 | Check match | Probably the same person but details differ | Confirm, then correct the wrong system |
 | Thrive only | Not found in the FA report | Register them with the FA, or correct their name or date of birth |
 | FA only | Registered with the FA, not found in Thrive | Add them to Thrive, or correct their details |
-| Thrive only (expected) | In a team with no FA equivalent, such as U5 or U6 | Nothing |
+| Thrive only (expected) | In a team with no FA equivalent, such as U4, U5, U6 or a training group. FA registration is not needed | Check they have an active mandate (they appear on Not paying if not) |
 | FA only (not registered) | FA status is Cancelled or Transferred | Nothing |
 
 ### Data quality flags
@@ -90,6 +90,7 @@ Each player is coloured by where they are registered for that team:
 | Green | In both the FA system and Thrive |
 | Orange | FA only |
 | Blue | Thrive only |
+| Grey | No FA needed: a Thrive group with no FA team, such as U4 to U6 or training. Only the mandate is checked |
 
 ## Not paying
 

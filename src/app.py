@@ -16,7 +16,7 @@ from typing import Dict, Optional
 import reconcile_core as rc
 from version import APP_NAME, APP_TITLE, __version__
 
-SOURCE_COLOURS = {"Both": "#E2F0D9", "FA only": "#FCE4D6", "Thrive only": "#DDEBF7"}
+SOURCE_COLOURS = {"Both": "#E2F0D9", "FA only": "#FCE4D6", "Thrive only": "#DDEBF7", rc.NO_FA: "#EDEDED"}
 ROW_COLOURS = {"ok": "#E2F0D9", "warn": "#FFF2CC", "bad": "#F8CBAD", "info": "#EDEDED"}
 IGNORE_LABEL, UNMAPPED_LABEL = "(ignore)", "(unmapped)"
 FONT = ("Segoe UI", 10) if sys.platform == "win32" else None
@@ -30,8 +30,11 @@ VIEW_GROUPS = [
                             "and players missing from one system."),
     ]),
     ("In one system only", [
-        ("In Thrive, not in FA", "Players in Thrive that were not found in the FA report. Red rows need action. "
-                                 "Grey rows are expected (for example U5/U6 groups the FA does not cover)."),
+        ("In Thrive, not in FA", "Players in Thrive, in a team that should be registered with the FA, who were "
+                                 "not found in the FA report. These need action."),
+        ("No FA team (U4-U6, training)", "Players only in Thrive groups the FA does not cover, such as U4 to U6 "
+                                         "and training squads. They do not need FA registration, but they should "
+                                         "still have an active mandate: check the Thrive mandate column."),
         ("In FA, not in Thrive", "Players registered with the FA but not found in Thrive. Red rows need action. "
                                  "Grey rows are Cancelled or Transferred, so not expected in Thrive."),
     ]),
@@ -91,7 +94,9 @@ Matched (team differs): same player, but the team is not the same in both system
 Matched (data quality): same player, but something in the data looks wrong (see Data quality).
 Check match: probably the same person but the name or date of birth differs. Confirm and correct one system.
 Thrive only / FA only: the player was not found in the other system.
-Thrive only (expected): in Thrive only because the team has no FA equivalent (for example U5, U6, training groups).
+Thrive only (expected): in Thrive only because the team has no FA equivalent (U4, U5, U6 and training groups). \
+These players do not need FA registration, but they are still checked for an active mandate and appear on the \
+Not paying list without one. On team sheets they are grey and marked "No FA needed".
 FA only (not registered): FA status is Cancelled or Transferred, so not expected in Thrive.
 
 Colours: green is fine, yellow needs a look, red needs action, grey is for information.
@@ -642,7 +647,9 @@ class App(tk.Tk):
             tip(ttk.Label(top, text=f"  {text}  ", background=colour),
                 {"Both": "Registered in both the FA system and Thrive for this team.",
                  "FA only": "Registered with the FA for this team but not in Thrive.",
-                 "Thrive only": "In this team in Thrive but not registered with the FA for it."}[text]
+                 "Thrive only": "In this team in Thrive but not registered with the FA for it.",
+                 rc.NO_FA: "A Thrive group with no FA team, such as U4 to U6 or training. FA registration is "
+                           "not needed; only the Thrive mandate is checked."}[text]
                 ).pack(side="left", padx=2)
 
         # Row 2: player counts and the team's managers
@@ -1187,7 +1194,9 @@ class App(tk.Tk):
         counts = {k: sum(1 for _, src in rows if src == k) for k in SOURCE_COLOURS}
         people = "   |   ".join(rc.staff_lines(self.result, label))
         self.team_summary_var.set(f"{len(rows)} players: {counts['Both']} in both, {counts['FA only']} FA only, "
-                                  f"{counts['Thrive only']} Thrive only" + (f"   |   {people}" if people else ""))
+                                  f"{counts['Thrive only']} Thrive only"
+                                  + (f", {counts[rc.NO_FA]} no FA needed" if counts[rc.NO_FA] else "")
+                                  + (f"   |   {people}" if people else ""))
 
     def save_staff_template(self) -> None:
         path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel workbook", "*.xlsx")],
