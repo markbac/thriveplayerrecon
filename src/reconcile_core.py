@@ -712,7 +712,8 @@ RESULT_TABS = [
 ]
 
 SOURCE_FILLS = {"Both": "E2F0D9", "FA only": "FCE4D6", "Thrive only": "DDEBF7"}
-CONFIDENTIAL = "CONFIDENTIAL: contains children's personal data. Share only with those who need it and delete when finished."
+CONFIDENTIAL = ("CONFIDENTIAL: contains children's personal data protected by UK GDPR. Share only with those who "
+                "need it, keep it secure and delete it when finished.")
 
 _NOTHING = {"", "n/a", "na", "none", "no", "nil", "-", "false", "not applicable"}
 

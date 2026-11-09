@@ -40,6 +40,24 @@ VIEW_GROUPS = [
     ]),
 ]
 
+BANNER_TEXT = ("Personal data warning: this tool handles children's personal and medical information, which is "
+               "protected by UK GDPR. Keep it secure, share only what each person needs, and delete files when "
+               "they are no longer needed.")
+
+
+def export_warning(includes_medical: bool) -> str:
+    details = "names, dates of birth and contact details"
+    if includes_medical:
+        details += ", and medical information"
+    return (f"The file you are about to create contains personal data about children ({details}).\n\n"
+            "Under UK GDPR you must:\n"
+            "  - only share it with people who need it to run the club\n"
+            "  - send each manager only their own team's file, by a secure route\n"
+            "  - keep it secure and delete it when it is no longer needed\n"
+            "  - report any loss or unauthorised sharing straight away\n\n"
+            "Do you want to continue?")
+
+
 HELP = [
     ("quick", "Quick start", """\
 1.  Click Find my latest exports (or Browse) and choose the two Excel files: the FA player registration report \
@@ -88,8 +106,8 @@ Anything the tool cannot work out is shown in red so you can choose it yourself.
 
 Choose (ignore) for Thrive groups with no FA team, such as training squads. Changes save automatically."""),
     ("privacy", "Looking after the data", """\
-The files contain children's personal and medical details. The tool works entirely on your computer and sends \
-nothing anywhere.
+The files contain children's personal and medical details, which are protected by UK GDPR. The tool works \
+entirely on your computer and sends nothing anywhere. A reminder appears every time you export.
 
 Keep the exports and anything you save secure, only share team files with that team's manager, and delete \
 files when they are no longer needed. This is also an FA requirement for the registration report."""),
@@ -231,7 +249,6 @@ class App(tk.Tk):
         self.result: Optional[rc.Result] = None
         self.sort_state = (None, False)
         self.current_view = "All players"
-        self._sharing_confirmed = False
         self.help_win = None
 
         self.fa_var = tk.StringVar(value=self.cfg["fa_path"])
@@ -251,6 +268,7 @@ class App(tk.Tk):
 
         self._load_logo()
         self._build_menu()
+        self._build_banner()
         self._build_top_bar()
         ttk.Label(self, textvariable=self.hint_var, style="Hint.TLabel", wraplength=1200,
                   padding=(12, 0, 12, 4)).pack(fill="x")
@@ -301,6 +319,18 @@ class App(tk.Tk):
         help_menu.add_command(label=f"About {APP_TITLE}", command=self.show_about)
         bar.add_cascade(label="Help", menu=help_menu)
         self.config(menu=bar)
+
+    def _build_banner(self) -> None:
+        """Permanent data protection notice across the top of the window."""
+        banner = tk.Frame(self, background="#FFF2CC", highlightbackground="#BF9000", highlightthickness=1)
+        banner.pack(fill="x")
+        label = tk.Label(banner, text=BANNER_TEXT, background="#FFF2CC", foreground="#7F1D1D", justify="left",
+                         anchor="w", font=FONT, wraplength=1100)
+        label.pack(side="left", fill="x", expand=True, padx=10, pady=5)
+        link = ttk.Button(banner, text="Data protection guidance", command=lambda: self.show_help("privacy"))
+        link.pack(side="right", padx=8, pady=4)
+        tip(link, "Opens the help section on looking after the data.")
+        banner.bind("<Configure>", lambda e: label.configure(wraplength=max(300, e.width - 230)))
 
     def _build_top_bar(self) -> None:
         bar = ttk.Frame(self, padding=(8, 8, 8, 2))
@@ -753,7 +783,6 @@ class App(tk.Tk):
 
     def _medical_changed(self) -> None:
         self.cfg["medical"] = bool(self.medical_var.get())
-        self._sharing_confirmed = False
         self._persist()
         self._fill_team_tab()
 
@@ -763,16 +792,10 @@ class App(tk.Tk):
             messagebox.showinfo("Nothing to export yet", "Choose your files and click Reconcile first.")
         return bool(self.result)
 
-    def _confirm_sharing(self) -> bool:
-        """Remind the user once that the files hold medical details."""
-        if self.medical_var.get() and not self._sharing_confirmed:
-            self._sharing_confirmed = messagebox.askokcancel(
-                "Medical details included",
-                "These files will include children's medical details.\n\nOnly send each team's file to that "
-                "team's manager, keep the files secure and delete them when finished.\n\n"
-                "To leave medical details out, click Cancel and untick \"Include medical details\".")
-            return self._sharing_confirmed
-        return True
+    def _confirm_export(self, includes_medical: bool) -> bool:
+        """Show the data protection warning every time, before anything is written."""
+        return messagebox.askokcancel("Data protection warning", export_warning(includes_medical),
+                                      icon="warning")
 
     def _save_as(self, name: str) -> str:
         return filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel workbook", "*.xlsx")],
@@ -789,7 +812,7 @@ class App(tk.Tk):
 
     def export(self) -> None:
         """Full workbook: every view, not paying, one sheet per team, mapping."""
-        if not self._need_result() or not self._confirm_sharing():
+        if not self._need_result() or not self._confirm_export(self.medical_var.get()):
             return
         path = self._save_as("Player_Reconciliation")
         if path and self._write(lambda: rc.export_xlsx(path, self.result, self.team_map, self.fa_var.get(),
@@ -799,7 +822,7 @@ class App(tk.Tk):
 
     def export_team(self) -> None:
         label = self.team_var.get()
-        if not self._need_result() or not label or not self._confirm_sharing():
+        if not self._need_result() or not label or not self._confirm_export(self.medical_var.get()):
             return
         safe = "".join(ch for ch in label if ch.isalnum() or ch in " -").strip().replace(" ", "_")
         path = self._save_as("Team_" + safe)
@@ -809,7 +832,7 @@ class App(tk.Tk):
 
     def export_each_team(self) -> None:
         """One file per team in a dated sub-folder, ready to send to managers."""
-        if not self._need_result() or not self._confirm_sharing():
+        if not self._need_result() or not self._confirm_export(self.medical_var.get()):
             return
         folder = filedialog.askdirectory(title="Choose where to save the team files")
         if not folder:
@@ -827,7 +850,7 @@ class App(tk.Tk):
                 open_folder(target)
 
     def export_not_paying(self) -> None:
-        if not self._need_result():
+        if not self._need_result() or not self._confirm_export(False):
             return
         path = self._save_as("Not_Paying")
         if path and self._write(lambda: rc.export_not_paying_xlsx(path, self.result), f"Saved {path}"):

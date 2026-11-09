@@ -32,7 +32,7 @@ It does not change data in either system. Corrections are made by a person in th
 | Attribute | How the design supports it |
 | --- | --- |
 | Usable by non-technical volunteers | Single exe, guided three-step workflow, plain-English results, help, tooltips, finds the latest exports and corrects swapped files |
-| Privacy | All processing is local. No network calls, no telemetry. Settings hold file paths and team mappings only. Medical details can be left out. One file per team limits what each manager receives |
+| Privacy | All processing is local. No network calls, no telemetry. Settings hold file paths and team mappings only. Medical details can be left out. One file per team limits what each manager receives. A permanent banner and a warning on every export keep the obligations in view |
 | Trustworthy results | Only an exact name and date of birth counts as matched. Every difference is shown with both values so a person confirms it |
 | Maintainable | The engine has no GUI code. A single module holds each concern. Version is defined once |
 | Portable | Standard library plus openpyxl. Builds to one exe with no installer |
