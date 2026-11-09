@@ -18,7 +18,9 @@ The FA report itself carries a warning that copies must be destroyed when no lon
 | Local only | All processing happens on the user's computer. The tool makes no network connections and sends no telemetry |
 | Nothing stored between runs | Players are held in memory while the app is open. The settings file contains file paths, team mappings and options only |
 | No change to source systems | The tool only reads the exports |
-| Medical details optional | A checkbox leaves them out of team sheets and exports. A reminder appears before exporting with them |
+| Warning banner | A data protection notice is shown across the top of the app at all times, with a link to this guidance |
+| Warning on every export | A UK GDPR warning appears each time any export button is clicked. Clicking Cancel creates nothing |
+| Medical details optional | A checkbox leaves them out of team sheets and exports. The warning names medical information when it is included |
 | Least data to each manager | The sharing button writes one file per team, so a manager does not receive other teams' data |
 | Marked confidential | Every exported team sheet carries a confidentiality line |
 | Repository safeguard | `.gitignore` excludes `.xlsx` files so exports are not committed by accident |

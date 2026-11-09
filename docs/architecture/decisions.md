@@ -42,7 +42,7 @@ Short records of the main choices, with the reasons and what was given up.
 
 ## 6. Medical details are optional and flagged
 
-**Decision:** A checkbox leaves medical information out of team sheets and exports, and the user is reminded before exporting with it.
+**Decision:** A checkbox leaves medical information out of team sheets and exports. A permanent banner reminds users of UK GDPR, and a warning appears on every export click, naming medical information when it is included.
 
 **Why:** Medical details are special category data. Managers need them, but only when they are needed and securely handled.
 

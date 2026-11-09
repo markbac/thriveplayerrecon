@@ -101,6 +101,8 @@ The **Not paying** tab lists players with no active Thrive mandate, plus players
 
 Untick **Include medical details** to leave medical information out of team sheets and exports.
 
+A data protection warning appears every time you click an export button. Read it, then click **OK** to continue or **Cancel** to stop. Nothing is created if you cancel. A reminder banner also stays at the top of the app.
+
 > **Warning:** the files contain children's personal details. Only send a team's file to that team's manager, keep files secure and delete them when finished. See [data protection](data-protection.md).
 
 ## Team mappings
