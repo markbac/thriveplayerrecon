@@ -70,11 +70,18 @@ Useful things to know:
 
 ## Team sheets
 
-The **Team sheets** tab is for team managers. Pick a team to see its players with:
+The **Team sheets** tab is for team managers. Pick a team, or step through teams with the arrow buttons either side of the team box (or **Alt+Left** and **Alt+Right**).
 
-- Contacts from both systems: Thrive account owner and phone, Thrive parent or guardian, FA parent or carer, player email, emergency contact
-- Medical information from Thrive, with a Yes or No column so nothing is missed
-- Photography, code of conduct and FA consent
+The list shows the key facts for each player: name, age, where registered, FA status, whether they pay through Thrive, main contact, whether medical information is recorded and any note. Players with medical information are shown in red with a warning sign.
+
+- **Search** finds a player by any detail, including phone numbers, emails and medical conditions
+- Click a column heading to sort, and click again to reverse
+- Double-click a player, or select one and press **Enter**, to see everything, grouped into sections:
+  - Contacts from both systems: Thrive account owner and phone, Thrive parent or guardian, FA parent or carer, player email, emergency contact
+  - Medical information from Thrive
+  - Photography, code of conduct and FA consent
+
+The team Excel files keep every column, including **Paying through Thrive**.
 
 Each player is coloured by where they are registered for that team:
 
@@ -89,6 +96,8 @@ Each player is coloured by where they are registered for that team:
 The **Not paying** tab lists players with no active Thrive mandate, plus players registered with the FA but not found in Thrive. These are the players who will not be paying through Thrive.
 
 > **Note:** a player listed as not found in Thrive may be there under a different name. Check before you chase.
+
+Use **Search** and the column headings to narrow and sort the list. **Copy for WhatsApp** makes a message listing each player's name and team, whether they are in the FA system and in Thrive, and whether they have an active mandate. Choose **All teams**, or one team to send to that team's manager.
 
 ## Step 3: share
 
@@ -119,7 +128,7 @@ Each message ends with a data protection footnote. Long teams are split into par
 
 ## Managers file (optional)
 
-To show manager and assistant manager names on team sheets, Excel files and messages, choose a **Managers file** in Step 1. Click **Save a managers file template** for an example. Two layouts work, found from the column headings:
+To show manager and assistant manager names on team sheets, Excel files and messages, choose a **Managers file** in Step 1. Click **Managers template** (or **File > Save a managers file template**) for an example. Two layouts work, found from the column headings:
 
 | Layout | Columns |
 | --- | --- |

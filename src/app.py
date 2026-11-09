@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import queue
+import re
 import sys
+import threading
 import tkinter as tk
-from datetime import date
+from datetime import date, datetime
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 from typing import Dict, Optional
 
 import reconcile_core as rc
@@ -73,7 +77,9 @@ HELP = [
     ("quick", "Quick start", """\
 1.  Click Find my latest exports (or Browse) and choose the two Excel files: the FA player registration report \
 and the Thrive data export.
-2.  Click Reconcile. This compares the two lists and takes a few seconds.
+2.  Click Reconcile. This compares the two lists and takes a few seconds; a progress window shows each step. \
+Until you do, the tables say "Not reconciled yet". If you choose different files afterwards, Step 2 says \
+"Files changed" until you click Reconcile again.
 3.  On the Results tab, pick a view on the left. Double-click any row to see all its details.
 4.  Fix anything that needs attention in Thrive or the FA system.
 5.  Use Share to save Excel files. "Export team files for managers" creates one file per team.
@@ -94,7 +100,13 @@ Fuzzy matching: names do not have to match exactly. Nicknames (Sam/Samuel), extr
 small typos and swapped first and last names are all recognised, but never reported as an exact match. \
 "Name fuzziness" sets how tolerant typo matching is. Lower is more tolerant, higher is stricter."""),
     ("teams", "Team sheets for managers", """\
-Pick a team to see its players with contacts (from both systems), medical information and consents.
+Pick a team to see its players. Use the arrow buttons either side of the team box (or Alt+Left / Alt+Right) to \
+move to the previous or next team.
+
+The list shows the key facts: name, age, where registered, FA status, whether they pay through Thrive, main \
+contact, whether medical information is recorded and any note. Players with medical information are shown in red. \
+Use Search to find a player by name, phone, email or condition, and click a column heading to sort. Double-click a player (or select and press Enter) to see \
+everything: all contacts and emails, full medical details and consents.
 
 Each player is coloured by where they are registered for that team:
 Green = in both FA and Thrive.   Orange = FA only.   Blue = Thrive only.
@@ -109,7 +121,7 @@ click Copy for WhatsApp and you get a squad message (players, contacts, FA and T
 status) and a separate medical message. Each ends with a data protection reminder.
 
 To show manager names on team sheets and messages, choose an optional Managers file in Step 1. Click \
-Save a managers file template to see the layout: either one row per person (Name, Role, Team(s)) or one row per \
+Managers template (or File, Save a managers file template) to see the layout: either one row per person (Name, Role, Team(s)) or one row per \
 team (Team, Manager, Assistant manager). Teams are matched by name, for example U12 Black.
 
 Send messages only to the people who need them, never to a big group, and ask them to delete them afterwards."""),
@@ -117,7 +129,10 @@ Send messages only to the people who need them, never to a big group, and ask th
 Lists players who have no active Thrive mandate, plus players registered with the FA but not found in Thrive. \
 These are the players who will not be paying through Thrive.
 
-Players listed as "not found in Thrive" may be there under a different name. Check before you chase."""),
+Players listed as "not found in Thrive" may be there under a different name. Check before you chase.
+
+Copy for WhatsApp makes a message listing each player's name and team, whether they are in the FA system and in \
+Thrive, and whether they have an active mandate. Choose All teams, or one team to send to that team's manager."""),
     ("mappings", "Team mappings", """\
 Thrive and the FA name their teams differently (for example "U07 Eagles" and "Wilpshire Wanderers U7 Eagles"). \
 The Team mappings tab says which Thrive team matches which FA team.
@@ -188,6 +203,31 @@ def tip(widget, text: str):
     return widget
 
 
+def _cell(v) -> str:
+    """A value as shown in a table cell."""
+    if isinstance(v, date):
+        return v.strftime("%d/%m/%Y")
+    return "" if v is None else str(v)
+
+
+def _sort_key(value):
+    """Sort numbers and dd/mm/yyyy dates by value, text alphabetically, blanks last."""
+    s = str(value).strip()
+    m = re.fullmatch(r"(\d{2})/(\d{2})/(\d{4})", s)
+    if m:
+        return (0, int(m.group(3) + m.group(2) + m.group(1)), "")
+    try:
+        return (0, float(s), "")
+    except ValueError:
+        return (1 if s else 2, 0, s.lower())
+
+
+def autowrap(label, pad: int = 12):
+    """Re-wrap a label's text to its current width, so it reads well at any window size."""
+    label.bind("<Configure>", lambda e: label.configure(wraplength=max(200, e.width - pad)), add="+")
+    return label
+
+
 def config_path() -> str:
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
     folder = os.path.join(base, APP_NAME)
@@ -197,7 +237,7 @@ def config_path() -> str:
 
 def load_config() -> dict:
     cfg = {"fa_path": "", "thrive_path": "", "staff_path": "", "fuzzy": rc.DEFAULT_FUZZY, "medical": True,
-           "team_map": dict(rc.DEFAULT_TEAM_MAP)}
+           "team_map": dict(rc.DEFAULT_TEAM_MAP), "geometry": "", "zoomed": False, "tab": 0, "team": ""}
     try:
         with open(config_path(), encoding="utf-8") as fh:
             saved = json.load(fh)
@@ -245,7 +285,7 @@ class App(tk.Tk):
         super().__init__()
         self.title(f"{APP_TITLE} v{__version__}: FA vs Thrive")
         self.geometry("1360x800")
-        self.minsize(1100, 650)
+        self.minsize(960, 620)
         try:  # sharp text on high-DPI Windows displays
             import ctypes
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -256,7 +296,11 @@ class App(tk.Tk):
             style.theme_use("vista")
         if FONT:
             style.configure(".", font=FONT)
-        style.configure("Treeview", rowheight=24)
+        # Row height from the real font size, so rows are not clipped at 125% / 150% display scaling
+        self.table_font = tkfont.Font(font=FONT) if FONT else tkfont.nametofont("TkDefaultFont")
+        style.configure("Treeview", rowheight=self.table_font.metrics("linespace") + 8)
+        self.heading_font = tkfont.Font(font=("Segoe UI", 10, "bold")) if FONT else self.table_font
+        style.configure("Treeview.Heading", font=self.heading_font)
         style.configure("Accent.TButton", font=("Segoe UI", 11, "bold") if FONT else None, padding=8)
         style.configure("Heading.TLabel", font=("Segoe UI", 13, "bold") if FONT else None)
         style.configure("Hint.TLabel", foreground="#1F4E79")
@@ -287,14 +331,19 @@ class App(tk.Tk):
         self.team_var = tk.StringVar()
         self.team_summary_var = tk.StringVar()
         self.map_warn_var = tk.StringVar()
+        self.run_state_var = tk.StringVar(value="Not run yet")
+        self.team_pos_var = tk.StringVar()
         self.export_buttons = []
+        self.placeholders = []  # "not reconciled yet" notices laid over each results table
+        self.tables: Dict[str, dict] = {}  # sortable, searchable tables by tree name
+        self.busy = False
 
         self._load_logo()
         self._build_menu()
         self._build_banner()
         self._build_top_bar()
-        ttk.Label(self, textvariable=self.hint_var, style="Hint.TLabel", wraplength=1200,
-                  padding=(12, 0, 12, 4)).pack(fill="x")
+        autowrap(ttk.Label(self, textvariable=self.hint_var, style="Hint.TLabel", wraplength=1200,
+                           padding=(12, 0, 12, 4)), 30).pack(fill="x")
         ttk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken", padding=(6, 1)
                   ).pack(fill="x", side="bottom")
         self.nb = ttk.Notebook(self)
@@ -308,6 +357,12 @@ class App(tk.Tk):
         self._select_view("All players")
         self.hint_var.set("Start here: choose your FA report and your Thrive export in step 1 "
                           "(or click \"Find my latest exports\"), then click Reconcile.")
+        self._restore_window()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.run_files = None
+        for var in (self.fa_var, self.thrive_var, self.staff_var):
+            var.trace_add("write", lambda *_a: self._files_changed())
+        self.status_var.set(f"Version {__version__}   |   Not reconciled yet")
         self.bind("<F1>", lambda _e: self.show_help("quick"))
         self.bind("<Control-r>", lambda _e: self.run())
 
@@ -332,7 +387,7 @@ class App(tk.Tk):
         file_menu.add_command(label="Export team files for managers...", command=self.export_each_team)
         file_menu.add_command(label="Save a managers file template...", command=self.save_staff_template)
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.destroy)
+        file_menu.add_command(label="Exit", command=self._on_close)
         bar.add_cascade(label="File", menu=file_menu)
         help_menu = tk.Menu(bar, tearoff=0)
         help_menu.add_command(label="How to use this tool", accelerator="F1", command=lambda: self.show_help("quick"))
@@ -377,17 +432,22 @@ class App(tk.Tk):
             tip(ttk.Entry(files, textvariable=var), hint).grid(row=i, column=1, sticky="ew", pady=2)
             tip(ttk.Button(files, text="Browse...", command=lambda v=var: self._browse(v)),
                 "Choose the file from your computer.").grid(row=i, column=2, padx=(8, 0))
-        tip(ttk.Button(files, text="Find my latest exports", command=self._find_latest),
+        actions = ttk.Frame(files)
+        actions.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+        tip(ttk.Button(actions, text="Find my latest exports", command=self._find_latest),
             "Looks in your Downloads folder for the newest FA report and Thrive export and fills in both boxes."
-            ).grid(row=3, column=1, sticky="w", pady=(4, 0))
-        tip(ttk.Button(files, text="Save a managers file template...", command=self.save_staff_template),
-            "Saves an example managers file you can fill in, with instructions.").grid(row=3, column=1, sticky="e",
-                                                                                      pady=(4, 0))
+            ).pack(side="left")
+        tip(ttk.Button(actions, text="Managers template...", command=self.save_staff_template),
+            "Saves an example managers file you can fill in, with instructions.").pack(side="left", padx=8)
 
         go = ttk.LabelFrame(bar, text=" Step 2: compare ", padding=8)
         go.grid(row=0, column=2, sticky="ns", padx=8)
-        tip(ttk.Button(go, text="Reconcile", style="Accent.TButton", command=self.run),
-            "Compare the two files. Nothing is changed in Thrive or the FA system. (Ctrl+R)").pack(fill="both", expand=True)
+        self.run_button = tip(ttk.Button(go, text="Reconcile", style="Accent.TButton", command=self.run),
+                              "Compare the two files. Nothing is changed in Thrive or the FA system. (Ctrl+R)")
+        self.run_button.pack(fill="both", expand=True)
+        self.run_state_label = ttk.Label(go, textvariable=self.run_state_var, style="Warn.TLabel",
+                                         anchor="center", justify="center", wraplength=130)
+        self.run_state_label.pack(fill="x", pady=(4, 0))
 
         share = ttk.LabelFrame(bar, text=" Step 3: share ", padding=8)
         share.grid(row=0, column=3, sticky="ns")
@@ -438,7 +498,8 @@ class App(tk.Tk):
         head.pack(fill="x")
         ttk.Label(head, textvariable=self.view_title_var, style="Heading.TLabel").pack(side="left")
         ttk.Label(head, textvariable=self.summary_var, style="Hint.TLabel").pack(side="right")
-        ttk.Label(main, textvariable=self.view_desc_var, wraplength=980, justify="left").pack(fill="x", pady=(0, 6))
+        autowrap(ttk.Label(main, textvariable=self.view_desc_var, wraplength=980, justify="left")
+                 ).pack(fill="x", pady=(0, 6))
         find = ttk.Frame(main)
         find.pack(fill="x", pady=(0, 6))
         ttk.Label(find, text="Search").pack(side="left")
@@ -446,8 +507,8 @@ class App(tk.Tk):
         entry.pack(side="left", padx=6)
         entry.bind("<KeyRelease>", lambda _e: self._fill_results())
         tip(entry, "Type part of a name, team or issue to narrow the list.")
-        ttk.Label(find, text="Double-click a row for full details. Click a column heading to sort.",
-                  style="Hint.TLabel").pack(side="left", padx=12)
+        autowrap(ttk.Label(find, text="Double-click a row for full details. Click a column heading to sort.",
+                           style="Hint.TLabel")).pack(side="left", padx=12, fill="x", expand=True)
         frame = ttk.Frame(main)
         frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(frame, columns=[c[1] for c in rc.COLUMNS], show="headings", selectmode="browse")
@@ -455,6 +516,7 @@ class App(tk.Tk):
             self.tree.heading(attr, text=title, command=lambda a=attr: self._sort_by(a))
             self.tree.column(attr, width=min(width * 7, 420), anchor="w")
         self._attach_scrollbars(frame, self.tree)
+        self._add_placeholder(frame)
         for level, colour in ROW_COLOURS.items():
             self.tree.tag_configure(level, background=colour)
         self.tree.bind("<Double-1>", lambda _e: self._row_detail(self.tree))
@@ -470,66 +532,153 @@ class App(tk.Tk):
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
 
+    def _add_placeholder(self, frame) -> None:
+        """Big notice over an empty table until the first reconcile, so it is clear nothing has run yet."""
+        note = tk.Label(frame, background="#FFFFFF", foreground="#1F4E79", justify="center",
+                        font=("Segoe UI", 12) if FONT else None, padx=20, pady=16,
+                        text="Not reconciled yet\n\nChoose your FA report and Thrive export in Step 1,\n"
+                             "then click Reconcile in Step 2 (or press Ctrl+R).")
+        note.place(relx=0.5, rely=0.35, anchor="center")
+        self.placeholders.append(note)
+
+    @staticmethod
+    def _search_row(parent, search_var, count_var, search_tip: str, hint: str) -> None:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(0, 6))
+        ttk.Label(row, text="Search").pack(side="left")
+        entry = tip(ttk.Entry(row, textvariable=search_var, width=28), search_tip)
+        entry.pack(side="left", padx=6)
+        entry.bind("<Escape>", lambda _e: search_var.set(""))
+        clear = tip(ttk.Button(row, text="✕", width=3, command=lambda: search_var.set("")), "Clear the search")
+        clear.pack(side="left")
+        ttk.Label(row, textvariable=count_var, style="Warn.TLabel").pack(side="left", padx=8)
+        autowrap(ttk.Label(row, text=hint, style="Hint.TLabel")).pack(side="left", fill="x", expand=True, padx=4)
+
     def _make_tree(self, parent):
         frame = ttk.Frame(parent)
         frame.pack(fill="both", expand=True)
         tree = ttk.Treeview(frame, show="headings", selectmode="browse")
         self._attach_scrollbars(frame, tree)
+        self._add_placeholder(frame)
         for tag, colour in SOURCE_COLOURS.items():
             tree.tag_configure(tag, background=colour)
         tree.bind("<Double-1>", lambda _e: self._row_detail(tree))
         return tree
 
-    @staticmethod
-    def _show_table(tree, headers, rows) -> None:
-        tree["columns"] = list(range(len(headers)))
+    def _fit_columns(self, tree, headers, shown_rows, cap: int = 320) -> None:
+        """Size each column to its heading and contents (measured in the real font), up to a cap."""
+        measure = self.table_font.measure
         for i, title in enumerate(headers):
-            tree.heading(i, text=title)
-            tree.column(i, width=max(70, min(len(title) * 9, 220)), anchor="w")
+            longest = max([self.heading_font.measure(str(title) + " ▲") + 8]  # room for a sort arrow
+                          + [measure(str(r[i])) for r in shown_rows[:300]])
+            tree.column(i, width=max(60, min(longest + 20, cap)), minwidth=50, anchor="w", stretch=False)
+
+    # Sortable, searchable tables (Team sheets and Not paying). Each row is
+    # (shown values, tags, payload for the details window, extra text to search).
+    def _register_table(self, tree, search_var: tk.StringVar, count_var: tk.StringVar) -> None:
+        self.tables[str(tree)] = {"headers": [], "rows": [], "sort": (None, False), "search": search_var,
+                                  "count": count_var, "payload": {}}
+        search_var.trace_add("write", lambda *_a: self._render_table(tree))
+
+    def _set_table(self, tree, headers, rows, cap: int = 320) -> None:
+        t = self.tables[str(tree)]
+        if t["headers"] != list(headers):
+            t["sort"] = (None, False)
+        t["headers"], t["rows"] = list(headers), rows
+        tree["columns"] = list(range(len(headers)))
+        self._fit_columns(tree, headers, [r[0] for r in rows], cap)
+        self._render_table(tree)
+
+    def _sort_table(self, tree, col: int) -> None:
+        t = self.tables[str(tree)]
+        prev, desc = t["sort"]
+        t["sort"] = (col, not desc if prev == col else False)
+        self._render_table(tree)
+
+    def _render_table(self, tree) -> None:
+        t = self.tables[str(tree)]
+        col, desc = t["sort"]
+        for i, title in enumerate(t["headers"]):
+            arrow = (" ▼" if desc else " ▲") if i == col else ""
+            tree.heading(i, text=title + arrow, command=lambda i=i: self._sort_table(tree, i))
+        term = t["search"].get().strip().lower()
+        rows = t["rows"]
+        if term:
+            rows = [r for r in rows if term in (" ".join(map(str, r[0])) + " " + r[3]).lower()]
+        if col is not None:
+            rows = sorted(rows, key=lambda r: _sort_key(r[0][col]), reverse=desc)
         tree.delete(*tree.get_children())
-        for values, source in rows:
-            tree.insert("", "end", tags=(source,), values=[
-                v.strftime("%d/%m/%Y") if isinstance(v, date) else v for v in values])
+        t["payload"] = {}
+        for shown, tags, payload, _text in rows:
+            t["payload"][tree.insert("", "end", values=shown, tags=tags)] = payload
+        total = len(t["rows"])
+        t["count"].set(f"Showing {len(rows)} of {total}" if term else "")
 
     def _build_team_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
         self.nb.add(tab, text="  Team sheets  ")
-        ttk.Label(tab, style="Hint.TLabel", wraplength=1100, text=(
-            "For team managers: pick a team to see its players with contacts, medical information and consents. "
-            "Double-click a player for full details.")).pack(anchor="w")
+        autowrap(ttk.Label(tab, style="Hint.TLabel", wraplength=1100, text=(
+            "For team managers: pick a team to see its players. The list shows the key facts. Double-click a "
+            "player (or select and press Enter) to see their contacts, medical details and consents. "
+            "Use the arrow buttons (or Alt+Left / Alt+Right) to move between teams."
+            ))).pack(fill="x")
+
+        # Row 1: choose the team, with previous / next arrows, and the colour key
         top = ttk.Frame(tab)
-        top.pack(fill="x", pady=6)
+        top.pack(fill="x", pady=(6, 2))
         ttk.Label(top, text="Team", style="Heading.TLabel").pack(side="left")
+        b_prev = tip(ttk.Button(top, text="◀", width=3, command=lambda: self._step_team(-1)),
+                     "Previous team (Alt+Left)")
+        b_prev.pack(side="left", padx=(8, 2))
         self.team_box = ttk.Combobox(top, textvariable=self.team_var, state="readonly", width=26)
-        self.team_box.pack(side="left", padx=8)
+        self.team_box.pack(side="left")
         self.team_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_team_tab())
         tip(self.team_box, "Choose the team to show.")
+        b_next = tip(ttk.Button(top, text="▶", width=3, command=lambda: self._step_team(1)),
+                     "Next team (Alt+Right)")
+        b_next.pack(side="left", padx=(2, 12))
+        ttk.Label(top, textvariable=self.team_pos_var, style="Hint.TLabel").pack(side="left", padx=(0, 12))
         for text, colour in SOURCE_COLOURS.items():
             tip(ttk.Label(top, text=f"  {text}  ", background=colour),
                 {"Both": "Registered in both the FA system and Thrive for this team.",
                  "FA only": "Registered with the FA for this team but not in Thrive.",
                  "Thrive only": "In this team in Thrive but not registered with the FA for it."}[text]
                 ).pack(side="left", padx=2)
-        ttk.Label(top, textvariable=self.team_summary_var).pack(side="left", padx=12)
-        b_each = tip(ttk.Button(top, text="Export team files for managers...", command=self.export_each_team),
-                     "One Excel file per team, in a dated folder.")
-        b_one = tip(ttk.Button(top, text="Export this team...", command=self.export_team),
-                    "Save the team shown here as an Excel file.")
-        b_wa = tip(ttk.Button(top, text="Copy for WhatsApp...", command=self.copy_whatsapp),
-                   "Text you can paste into WhatsApp: squad, contacts, sign-up status and direct debit, and a "
-                   "separate medical message.")
-        b_each.pack(side="right")
-        b_one.pack(side="right", padx=6)
-        b_wa.pack(side="right")
-        b_mp = tip(ttk.Button(top, text="Copy manager phone", command=lambda: self.copy_phone("manager")),
+
+        # Row 2: player counts and the team's managers
+        autowrap(ttk.Label(tab, textvariable=self.team_summary_var)).pack(fill="x", pady=(2, 2))
+
+        # Row 3: sharing actions, left-aligned so they stay visible in a smaller window
+        acts = ttk.Frame(tab)
+        acts.pack(fill="x", pady=(2, 6))
+        b_mp = tip(ttk.Button(acts, text="Copy manager phone", command=lambda: self.copy_phone("manager")),
                    "Copies the manager's phone number from the managers file, to paste into WhatsApp and find "
                    "their chat. Then use Copy for WhatsApp to send the team details.")
-        b_ap = tip(ttk.Button(top, text="Copy assistant phone", command=lambda: self.copy_phone("assistant")),
+        b_ap = tip(ttk.Button(acts, text="Copy assistant phone", command=lambda: self.copy_phone("assistant")),
                    "Copies the assistant manager's phone number from the managers file.")
-        b_ap.pack(side="right", padx=(0, 6))
-        b_mp.pack(side="right", padx=(0, 6))
-        self.export_buttons += [b_each, b_one, b_wa, b_mp, b_ap]
+        b_wa = tip(ttk.Button(acts, text="Copy for WhatsApp...", command=self.copy_whatsapp),
+                   "Text you can paste into WhatsApp: squad, contacts, sign-up status and direct debit, and a "
+                   "separate medical message.")
+        b_one = tip(ttk.Button(acts, text="Export this team...", command=self.export_team),
+                    "Save the team shown here as an Excel file.")
+        b_each = tip(ttk.Button(acts, text="Export team files for managers...", command=self.export_each_team),
+                     "One Excel file per team, in a dated folder.")
+        for b in (b_mp, b_ap, b_wa, b_one, b_each):
+            b.pack(side="left", padx=(0, 6))
+        self.export_buttons += [b_each, b_one, b_wa, b_mp, b_ap, b_prev, b_next]
+        self.team_tab = tab
+        self.bind("<Alt-Left>", lambda _e: self._step_team(-1, only_on_tab=True))
+        self.bind("<Alt-Right>", lambda _e: self._step_team(1, only_on_tab=True))
+        self.team_search_var, self.team_count_var = tk.StringVar(), tk.StringVar()
+        self._search_row(tab, self.team_search_var, self.team_count_var,
+                         "Type part of a name, phone number, email or condition to find a player in this team.",
+                         "Click a column heading to sort. Double-click a player for full details. "
+                         "Red text = medical information recorded.")
         self.team_tree = self._make_tree(tab)
+        self.team_tree.tag_configure("medical", foreground="#B00000")
+        self._register_table(self.team_tree, self.team_search_var, self.team_count_var)
+        self.team_tree.bind("<Double-1>", lambda _e: self._team_detail())
+        self.team_tree.bind("<Return>", lambda _e: self._team_detail())
 
     def _build_not_paying_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
@@ -537,26 +686,37 @@ class App(tk.Tk):
         self.np_tab = tab
         top = ttk.Frame(tab)
         top.pack(fill="x", pady=(0, 6))
-        ttk.Label(top, style="Hint.TLabel", wraplength=1000, justify="left", text=(
-            "Players with no active Thrive mandate, plus players registered with the FA but not found in Thrive: "
-            "the ones who will not be paying through Thrive. FA-only players may be in Thrive under another "
-            "name, so check before you chase.")).pack(side="left")
         b = tip(ttk.Button(top, text="Export this list...", command=self.export_not_paying),
                 "Save this list as an Excel file.")
-        b.pack(side="right")
+        b.pack(side="right", anchor="n")  # packed first so it keeps its space in a narrow window
+        b_wa = tip(ttk.Button(top, text="Copy for WhatsApp...", command=self.copy_whatsapp_not_paying),
+                   "Text you can paste into WhatsApp: each player's name and team, whether they are in the FA "
+                   "system and Thrive, and whether they have an active mandate. All teams or one team.")
+        b_wa.pack(side="right", anchor="n", padx=(0, 6))
+        self.export_buttons.append(b_wa)
+        autowrap(ttk.Label(top, style="Hint.TLabel", wraplength=1000, justify="left", text=(
+            "Players with no active Thrive mandate, plus players registered with the FA but not found in Thrive: "
+            "the ones who will not be paying through Thrive. FA-only players may be in Thrive under another "
+            "name, so check before you chase. Double-click a row for full details."))
+                 ).pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.export_buttons.append(b)
+        self.np_search_var, self.np_count_var = tk.StringVar(), tk.StringVar()
+        self._search_row(tab, self.np_search_var, self.np_count_var,
+                         "Type part of a name, team or contact to narrow the list.",
+                         "Click a column heading to sort. Double-click a row for full details.")
         self.np_tree = self._make_tree(tab)
+        self._register_table(self.np_tree, self.np_search_var, self.np_count_var)
 
     def _build_mapping_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
         self.nb.add(tab, text="  Team mappings  ")
         self.map_tab = tab
-        ttk.Label(tab, wraplength=1100, justify="left", text=(
+        autowrap(ttk.Label(tab, wraplength=1100, justify="left", text=(
             "Thrive and the FA name their teams differently. This list says which Thrive team matches which FA "
             "team. The defaults suit your current teams. To change one, click a row, choose the FA team below and "
             "click Apply. Choose (ignore) for Thrive groups with no FA team, such as training squads. "
-            "Changes save automatically.")).pack(anchor="w")
-        ttk.Label(tab, textvariable=self.map_warn_var, style="Warn.TLabel").pack(anchor="w", pady=(4, 4))
+            "Changes save automatically."))).pack(fill="x")
+        autowrap(ttk.Label(tab, textvariable=self.map_warn_var, style="Warn.TLabel")).pack(fill="x", pady=(4, 4))
         frame = ttk.Frame(tab)
         frame.pack(fill="both", expand=True)
         self.map_tree = ttk.Treeview(frame, columns=("thrive", "fa", "count"), show="headings", selectmode="browse")
@@ -574,20 +734,21 @@ class App(tk.Tk):
         tip(self.map_tree, "Red = needs a decision. Grey = ignored (no FA team).")
 
         edit = ttk.LabelFrame(tab, text=" Change the selected mapping ", padding=8)
-        edit.pack(fill="x", pady=(8, 0))
+        edit.pack(fill="x", pady=(8, 0), side="bottom", before=frame)  # keep visible in a short window
         self.sel_var, self.target_var, self.new_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
         ttk.Label(edit, text="Thrive team").grid(row=0, column=0, sticky="w")
         ttk.Label(edit, textvariable=self.sel_var, width=24, font=("Segoe UI", 10, "bold") if FONT else None
                   ).grid(row=0, column=1, sticky="w", padx=8)
         ttk.Label(edit, text="matches FA team").grid(row=0, column=2, sticky="w")
         self.target_box = ttk.Combobox(edit, textvariable=self.target_var, state="readonly", width=40)
-        self.target_box.grid(row=0, column=3, padx=8)
+        self.target_box.grid(row=0, column=3, padx=8, sticky="ew")
+        edit.columnconfigure(3, weight=1)
         tip(ttk.Button(edit, text="Apply", command=self._apply_mapping), "Save this choice.").grid(row=0, column=4)
         tip(ttk.Button(edit, text="Remove row", command=self._remove_mapping),
             "Delete this mapping. The team will show as unmapped until you choose again.").grid(row=0, column=5, padx=8)
 
         tools = ttk.Frame(tab)
-        tools.pack(fill="x", pady=(8, 0))
+        tools.pack(fill="x", pady=(8, 0), side="bottom", before=edit)
         ttk.Label(tools, text="Add a Thrive team by name").pack(side="left")
         ttk.Entry(tools, textvariable=self.new_var, width=24).pack(side="left", padx=6)
         ttk.Button(tools, text="Add", command=self._add_mapping).pack(side="left")
@@ -670,31 +831,132 @@ class App(tk.Tk):
                                 "Please choose both files first:\n\n  the FA registration report\n"
                                 "  the Thrive data export\n\nOr click \"Find my latest exports\".")
             return
-        self.config(cursor="watch")
-        self.update_idletasks()
-        try:
-            if (rc.detect_kind(fa_path), rc.detect_kind(thrive_path)) == ("thrive", "fa"):
-                fa_path, thrive_path = thrive_path, fa_path  # chosen the wrong way round
-                self.fa_var.set(fa_path)
-                self.thrive_var.set(thrive_path)
-                messagebox.showinfo("Files swapped", "The two files were in the wrong boxes, so I swapped them.")
-            self.fa_players = rc.load_fa(fa_path)
-            self.thrive_players = rc.load_thrive(thrive_path)
-        except rc.ReportError as exc:
-            messagebox.showerror("Could not read file", f"{exc}\n\nCheck each file is in the right box.")
+        if self.busy:
             return
-        finally:
-            self.config(cursor="")
-        self.staff = []
         staff_path = self.staff_var.get().strip()
-        if staff_path:
+        self.busy = True
+        self._open_progress()
+        q: "queue.Queue[tuple]" = queue.Queue()
+
+        def load() -> None:  # background thread: no Tk calls in here
             try:
-                self.staff = rc.load_staff(staff_path)
-            except (rc.ReportError, OSError) as exc:
-                messagebox.showwarning("Managers file not used", f"{exc}\n\nThe comparison will carry on without it.")
-        self.cfg.update(fa_path=fa_path, thrive_path=thrive_path, staff_path=staff_path)
-        added = self._suggest_unmapped(quiet=True)
-        self._recompute()
+                f, t, swapped = fa_path, thrive_path, False
+                q.put(("step", 0))
+                if (rc.detect_kind(f), rc.detect_kind(t)) == ("thrive", "fa"):
+                    f, t, swapped = t, f, True  # chosen the wrong way round
+                q.put(("step", 1))
+                fa_players = rc.load_fa(f)
+                q.put(("step", 2))
+                thrive_players = rc.load_thrive(t)
+                q.put(("step", 3))
+                staff, staff_error = [], None
+                if staff_path:
+                    try:
+                        staff = rc.load_staff(staff_path)
+                    except (rc.ReportError, OSError) as exc:
+                        staff_error = str(exc)
+                q.put(("loaded", (f, t, swapped, fa_players, thrive_players, staff, staff_error)))
+            except rc.ReportError as exc:
+                q.put(("error", f"{exc}\n\nCheck each file is in the right box."))
+            except Exception as exc:  # noqa: BLE001 - shown to the user rather than lost in a thread
+                q.put(("error", f"Something went wrong reading the files:\n{exc}"))
+
+        def match(team_map: dict, fuzzy: float) -> None:  # background thread
+            try:
+                q.put(("step", 4))
+                q.put(("matched", self._compute(team_map, fuzzy)))
+            except Exception as exc:  # noqa: BLE001
+                q.put(("error", f"Something went wrong comparing the files:\n{exc}"))
+
+        def poll() -> None:
+            try:
+                while True:
+                    kind, payload = q.get_nowait()
+                    if kind == "step":
+                        self._progress_step(payload)
+                    elif kind == "error":
+                        self._close_progress()
+                        messagebox.showerror("Could not reconcile", payload)
+                        return
+                    elif kind == "loaded":
+                        f, t, swapped, fa_players, thrive_players, staff, staff_error = payload
+                        self.fa_players, self.thrive_players, self.staff = fa_players, thrive_players, staff
+                        if swapped:
+                            self.fa_var.set(f)
+                            self.thrive_var.set(t)
+                        self.cfg.update(fa_path=f, thrive_path=t, staff_path=staff_path)
+                        self._loaded_info = (swapped, staff_error, self._suggest_unmapped(quiet=True))
+                        threading.Thread(target=match, args=(dict(self.team_map), self._fuzzy()),
+                                         daemon=True).start()
+                    elif kind == "matched":
+                        self._progress_step(5)
+                        self.update_idletasks()
+                        self._show_result(payload)
+                        self._close_progress()
+                        self._after_run()
+                        return
+            except queue.Empty:
+                pass
+            self.after(60, poll)
+
+        threading.Thread(target=load, daemon=True).start()
+        self.after(60, poll)
+
+    PROGRESS_STEPS = ["Checking the files", "Reading the FA registration report", "Reading the Thrive export",
+                      "Reading the managers file", "Matching players", "Building team sheets and lists"]
+
+    def _open_progress(self) -> None:
+        win = self.progress_win = tk.Toplevel(self)
+        win.title("Reconciling")
+        win.transient(self)
+        win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", lambda: None)  # cannot be closed part-way through
+        frame = ttk.Frame(win, padding=16)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Comparing the FA report with the Thrive export...", style="Heading.TLabel"
+                  ).pack(anchor="w")
+        self.progress_text = tk.StringVar(value=self.PROGRESS_STEPS[0])
+        ttk.Label(frame, textvariable=self.progress_text).pack(anchor="w", pady=(10, 4))
+        self.progress_bar = ttk.Progressbar(frame, length=420, mode="determinate",
+                                            maximum=len(self.PROGRESS_STEPS))
+        self.progress_bar.pack(fill="x")
+        ttk.Label(frame, text="Nothing is changed in Thrive or the FA system.", style="Hint.TLabel"
+                  ).pack(anchor="w", pady=(10, 0))
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 3
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.grab_set()
+        self.run_button.state(["disabled"])
+        self.config(cursor="watch")
+
+    def _progress_step(self, i: int) -> None:
+        n = len(self.PROGRESS_STEPS)
+        self.progress_text.set(f"Step {i + 1} of {n}: {self.PROGRESS_STEPS[i]}...")
+        self.progress_bar["value"] = i + 0.5
+
+    def _close_progress(self) -> None:
+        self.busy = False
+        self.config(cursor="")
+        self.run_button.state(["!disabled"])
+        if getattr(self, "progress_win", None) is not None:
+            self.progress_win.grab_release()
+            self.progress_win.destroy()
+            self.progress_win = None
+
+    def _after_run(self) -> None:
+        swapped, staff_error, added = self._loaded_info
+        fa_path, thrive_path = self.fa_var.get().strip(), self.thrive_var.get().strip()
+        if swapped:
+            messagebox.showinfo("Files swapped", "The two files were in the wrong boxes, so I swapped them.")
+        if staff_error:
+            messagebox.showwarning("Managers file not used",
+                                   f"{staff_error}\n\nThe comparison carried on without it.")
+        for note in self.placeholders:
+            note.place_forget()
+        self.run_files = (fa_path, thrive_path, self.staff_var.get().strip())
+        self.run_state_var.set(f"Last run {datetime.now():%H:%M}")
+        self.run_state_label.configure(style="Hint.TLabel")
         self._set_exports_enabled(True)
         missing = self._unmapped_teams()
         msg = (f"Compared {len(self.fa_players)} FA players with {len(self.thrive_players)} Thrive players. "
@@ -709,15 +971,39 @@ class App(tk.Tk):
                             f"{os.path.basename(thrive_path)}")
         self._persist()
 
+    def _files_changed(self) -> None:
+        """Warn that the results on screen come from different files to the ones now chosen."""
+        if self.run_files is None or self.busy:
+            return
+        now = (self.fa_var.get().strip(), self.thrive_var.get().strip(), self.staff_var.get().strip())
+        if now != self.run_files:
+            self.run_state_var.set("Files changed:\nclick Reconcile again")
+            self.run_state_label.configure(style="Warn.TLabel")
+            self.hint_var.set("You have chosen different files. The results below are from the previous files "
+                              "until you click Reconcile again.")
+
     def _set_exports_enabled(self, enabled: bool) -> None:
         for b in self.export_buttons:
             b.state(["!disabled"] if enabled else ["disabled"])
 
     def _recompute(self) -> None:
-        if self.fa_players is None:
+        if self.fa_players is None or self.busy:
             return
-        self.result = rc.reconcile(self.fa_players, self.thrive_players, self.team_map, self._fuzzy())
-        rc.attach_staff(self.result, self.staff, self.team_map)
+        self.config(cursor="watch")
+        self.update_idletasks()
+        try:
+            self._show_result(self._compute(self.team_map, self._fuzzy()))
+        finally:
+            self.config(cursor="")
+
+    def _compute(self, team_map: dict, fuzzy: float) -> rc.Result:
+        """The comparison itself. Touches no widgets, so it can run on a background thread."""
+        result = rc.reconcile(self.fa_players, self.thrive_players, team_map, fuzzy)
+        rc.attach_staff(result, self.staff, team_map)
+        return result
+
+    def _show_result(self, result: rc.Result) -> None:
+        self.result = result
         counts = self.result.counts()
         attention = sum(n for k, n in counts.items() if rc.LEVELS[k] in ("bad", "warn"))
         self.summary_var.set(f"{counts.get('Matched', 0)} fully matched   |   {attention} need attention")
@@ -725,13 +1011,18 @@ class App(tk.Tk):
             n = sum(1 for r in self.result.rows if pred(r))
             self.view_tree.item(title, text=f"{title}  ({n})")
         self._fill_results()
+        all_rows = [[v.strftime("%d/%m/%Y") if isinstance(v, date) else ("" if v is None else v)
+                     for v in (getattr(r, a) for _t, a, _w in rc.COLUMNS)] for r in self.result.rows]
+        self._fit_columns(self.tree, [t for t, _a, _w in rc.COLUMNS], all_rows, cap=360)
         headers, np_rows = rc.not_paying_report(self.result)
-        self._show_table(self.np_tree, headers, np_rows)
+        self._set_table(self.np_tree, headers,
+                        [([_cell(v) for v in values], (source,), None, "") for values, source in np_rows])
         self.nb.tab(self.np_tab, text=f"  Not paying ({len(np_rows)})  ")
         labels = rc.team_labels(self.result)
         self.team_box["values"] = labels
         if self.team_var.get() not in labels:
-            self.team_var.set(labels[0] if labels else "")
+            last = self.cfg.get("team", "")
+            self.team_var.set(last if last in labels else labels[0] if labels else "")
         self._fill_team_tab()
         self._refresh_mapping_table()
 
@@ -804,7 +1095,7 @@ class App(tk.Tk):
         if not sel:
             return
         values = tree.item(sel[0], "values")
-        headers = [tree.heading(c, "text") for c in tree["columns"]]
+        headers = [tree.heading(c, "text").rstrip(" ▲▼") for c in tree["columns"]]
         win = tk.Toplevel(self)
         win.title("Details")
         win.geometry("640x560")
@@ -818,14 +1109,81 @@ class App(tk.Tk):
         text.configure(state="disabled")
         ttk.Button(win, text="Close", command=win.destroy).pack(pady=6)
 
+    def _team_detail(self) -> None:
+        """Full details for one player on the Team sheets tab, grouped into sections."""
+        sel = self.team_tree.selection()
+        payload = self.tables[str(self.team_tree)]["payload"]
+        if not sel or sel[0] not in payload:
+            return
+        headers, values = payload[sel[0]]
+        data = {h: (v.strftime("%d/%m/%Y") if isinstance(v, date) else str(v if v is not None else "")).strip()
+                for h, v in zip(headers, values)}
+        win = tk.Toplevel(self)
+        win.title(f"Player details: {data.get('Player', '')}")
+        win.geometry("680x640")
+        win.transient(self)
+        bold = ("Segoe UI", 10, "bold") if FONT else None
+        text = tk.Text(win, wrap="word", padx=14, pady=10, font=FONT, spacing3=2)
+        ys = ttk.Scrollbar(win, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=ys.set)
+        ttk.Button(win, text="Close", command=win.destroy).pack(side="bottom", pady=6)
+        ys.pack(side="right", fill="y")
+        text.pack(fill="both", expand=True)
+        text.tag_configure("title", font=("Segoe UI", 14, "bold") if FONT else None, foreground="#1F4E79",
+                           spacing3=8)
+        text.tag_configure("section", font=("Segoe UI", 11, "bold") if FONT else None, foreground="#FFFFFF",
+                           background="#1F4E79", spacing1=10, spacing3=4, lmargin1=4)
+        text.tag_configure("k", font=bold, foreground="#1F4E79")
+        text.tag_configure("empty", foreground="#808080")
+        text.tag_configure("alert", background="#F8CBAD")
+        text.insert("end", f"{data.get('Player', '')}\n", "title")
+        for section, fields in rc.TEAM_DETAIL_SECTIONS:
+            present = [h for h in fields if h in data and data[h]]
+            if not any(h in data for h in fields):
+                continue  # e.g. medical left out
+            text.insert("end", f" {section} \n", "section")
+            if not present:
+                text.insert("end", "Nothing recorded\n", "empty")
+            for h in present:
+                tags = ("alert",) if h == "Medical info?" and data[h] == "Yes" else ()
+                text.insert("end", f"{h}:  ", ("k",) + tags)
+                text.insert("end", f"{data[h]}\n", tags)
+        text.configure(state="disabled")
+        win.bind("<Escape>", lambda _e: win.destroy())
+
     # ------------------------------------------------------------------ team sheets
+    def _step_team(self, delta: int, only_on_tab: bool = False):
+        """Move to the previous (-1) or next (+1) team, wrapping round at the ends."""
+        if only_on_tab and self.nb.select() != str(self.team_tab):
+            return None
+        labels = list(self.team_box["values"])
+        if not labels:
+            return "break"
+        cur = self.team_var.get()
+        i = labels.index(cur) if cur in labels else -delta
+        self.team_var.set(labels[(i + delta) % len(labels)])
+        self._fill_team_tab()
+        return "break"
+
     def _fill_team_tab(self) -> None:
         label = self.team_var.get()
+        labels = list(self.team_box["values"])
+        self.team_pos_var.set(f"{labels.index(label) + 1} of {len(labels)}" if label in labels else "")
         if not self.result or label not in self.result.teams:
             self.team_summary_var.set("")
             return
-        headers, rows = rc.team_report(self.result, label, self.medical_var.get())
-        self._show_table(self.team_tree, headers, rows)
+        self.cfg["team"] = label
+        medical = self.medical_var.get()
+        headers, rows = rc.team_report(self.result, label, medical)
+        view = rc.team_view_headers(medical)
+        table_rows = []
+        for values, source in rows:
+            shown = [_cell(v) for v in rc.team_overview(headers, values, medical)]
+            tags = (source, "medical") if medical and "⚠ Yes" in shown else (source,)
+            table_rows.append((shown, tags, (headers, values), " ".join(_cell(v) for v in values)))
+        self._set_table(self.team_tree, view, table_rows, cap=280)
+        last = len(view) - 1
+        self.team_tree.column(last, stretch=True, width=max(300, self.team_tree.column(last, "width")))
         counts = {k: sum(1 for _, src in rows if src == k) for k in SOURCE_COLOURS}
         people = "   |   ".join(rc.staff_lines(self.result, label))
         self.team_summary_var.set(f"{len(rows)} players: {counts['Both']} in both, {counts['FA only']} FA only, "
@@ -868,10 +1226,13 @@ class App(tk.Tk):
         win = tk.Toplevel(self)
         win.title(f"Copy for WhatsApp: {label}")
         win.geometry("620x640")
-        ttk.Label(win, style="Hint.TLabel", wraplength=580, justify="left", text=(
+        win.minsize(420, 360)
+        autowrap(ttk.Label(win, style="Hint.TLabel", wraplength=580, justify="left", text=(
             "Pick a tab, click Copy, then paste into WhatsApp. You can edit the text first. Send the squad "
             "message and the medical message separately, and only to the people who need them.")
-                  ).pack(anchor="w", padx=10, pady=8)
+                  )).pack(fill="x", padx=10, pady=8)
+        row = ttk.Frame(win)  # packed before the text so the buttons stay visible when the window is small
+        row.pack(fill="x", padx=10, pady=8, side="bottom")
         nb = ttk.Notebook(win)
         nb.pack(fill="both", expand=True, padx=10)
         boxes = []
@@ -888,12 +1249,66 @@ class App(tk.Tk):
             self.clipboard_append(boxes[nb.index("current")].get("1.0", "end").strip())
             self.status_var.set("Copied. Paste it into WhatsApp.")
 
-        row = ttk.Frame(win)
-        row.pack(fill="x", padx=10, pady=8)
         ttk.Button(row, text="Copy to clipboard", style="Accent.TButton", command=copy).pack(side="left")
         ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
         if not medical:
             ttk.Label(row, text="  Medical message left out (tickbox is off).", style="Hint.TLabel").pack(side="left")
+
+    def copy_whatsapp_not_paying(self) -> None:
+        """WhatsApp-ready not-paying list, for every team or one team, to copy and paste."""
+        if not self._need_result():
+            return
+        if not messagebox.askokcancel("Data protection warning", WHATSAPP_WARNING, icon="warning"):
+            return
+        all_label = "All teams"
+        teams = list(rc.not_paying_by_team(self.result))
+        win = tk.Toplevel(self)
+        win.title("Copy for WhatsApp: not paying")
+        win.geometry("640x660")
+        win.minsize(420, 360)
+        win.transient(self)
+        autowrap(ttk.Label(win, style="Hint.TLabel", justify="left", text=(
+            "Choose all teams or one team (for example to send to that team's manager), then click Copy and "
+            "paste into WhatsApp. You can edit the text first."))).pack(fill="x", padx=10, pady=(8, 4))
+        pick = ttk.Frame(win)
+        pick.pack(fill="x", padx=10, pady=(0, 6))
+        ttk.Label(pick, text="Team").pack(side="left")
+        team_var = tk.StringVar(value=all_label)
+        box = ttk.Combobox(pick, textvariable=team_var, state="readonly", width=28, values=[all_label] + teams)
+        box.pack(side="left", padx=8)
+        # Buttons packed before the text so they stay visible when the window is small
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=10, pady=8, side="bottom")
+        nb = ttk.Notebook(win)
+        nb.pack(fill="both", expand=True, padx=10)
+        boxes = []
+
+        def fill(_e=None) -> None:
+            for tab_id in nb.tabs():
+                nb.forget(tab_id)
+            boxes.clear()
+            team = None if team_var.get() == all_label else team_var.get()
+            msgs = rc.whatsapp_not_paying(self.result, team)
+            for i, text in enumerate(msgs, 1):
+                frame = ttk.Frame(nb)
+                txt = tk.Text(frame, wrap="word", font=FONT, undo=True)
+                sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
+                txt.configure(yscrollcommand=sb.set)
+                sb.pack(side="right", fill="y")
+                txt.insert("1.0", text)
+                txt.pack(fill="both", expand=True)
+                nb.add(frame, text=f"  Message {i}  " if len(msgs) > 1 else "  Message  ")
+                boxes.append(txt)
+
+        def copy() -> None:
+            self.clipboard_clear()
+            self.clipboard_append(boxes[nb.index("current")].get("1.0", "end").strip())
+            self.status_var.set("Copied. Paste it into WhatsApp.")
+
+        box.bind("<<ComboboxSelected>>", fill)
+        ttk.Button(row, text="Copy to clipboard", style="Accent.TButton", command=copy).pack(side="left")
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
+        fill()
 
     def _medical_changed(self) -> None:
         self.cfg["medical"] = bool(self.medical_var.get())
@@ -1048,7 +1463,10 @@ class App(tk.Tk):
         missing = self._unmapped_teams()
         found = rc.suggest_mapping(missing, self._fa_teams())
         self.team_map.update(found)
-        if found:
+        if found and quiet:  # during Reconcile: the comparison runs straight after, so just save
+            self._persist()
+            self._refresh_mapping_table()
+        elif found:
             self._mapping_changed()
         if not quiet:
             self.status_var.set(f"Suggested {len(found)} mapping(s). {len(missing) - len(found)} still need choosing.")
@@ -1058,6 +1476,36 @@ class App(tk.Tk):
         if messagebox.askyesno("Reset", "Replace your team mappings with the built-in defaults?"):
             self.team_map = dict(rc.DEFAULT_TEAM_MAP)
             self._mapping_changed()
+
+    def _restore_window(self) -> None:
+        """Put the window back where it was last time, if that is still on the screen, and reopen the last tab."""
+        m = re.fullmatch(r"(\d+)x(\d+)([+-]-?\d+)([+-]-?\d+)", str(self.cfg.get("geometry", "")))
+        if m:
+            w, h, x, y = (int(m.group(i)) for i in range(1, 5))
+            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+            # Accept only if most of it is on the current screen(s), e.g. not left on an unplugged monitor
+            if w >= 600 and h >= 400 and -50 <= x <= self.winfo_vrootwidth() - 200 and 0 <= y <= sh - 100:
+                # Set once the menu bar is in place, otherwise Windows counts it inside the height
+                self.update_idletasks()
+                self.geometry(f"{min(w, sw)}x{min(h, sh)}+{x}+{y}")
+        if self.cfg.get("zoomed") and sys.platform == "win32":
+            self.state("zoomed")
+        tabs = self.nb.tabs()
+        try:
+            self.nb.select(tabs[int(self.cfg.get("tab", 0))])
+        except (IndexError, ValueError, TypeError):
+            pass
+
+    def _on_close(self) -> None:
+        try:
+            zoomed = self.state() == "zoomed"
+            if zoomed:
+                self.state("normal")  # remember the normal size, so un-maximising next time works
+            self.cfg.update(geometry=self.wm_geometry(), zoomed=zoomed,
+                            tab=self.nb.index(self.nb.select()))
+            self._persist()
+        finally:
+            self.destroy()
 
     def _persist(self) -> None:
         self.cfg["team_map"] = self.team_map
