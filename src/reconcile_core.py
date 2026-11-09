@@ -788,19 +788,52 @@ def _medical_values(row: Row) -> List[str]:
 def team_report(result: Result, label: str, include_medical: bool = True, today: Optional[date] = None):
     """(headers, [(values, source)]) for one team, for the manager's player sheet."""
     today = today or date.today()
-    headers = ["Player", "DOB", "Age", "In", "FA status", "Thrive mandate", "Reconciliation note"] \
-        + CONTACT_HEADERS + (MEDICAL_HEADERS if include_medical else []) + CONSENT_HEADERS
+    headers = PLAYER_HEADERS + CONTACT_HEADERS + (MEDICAL_HEADERS if include_medical else []) + CONSENT_HEADERS
     rows = []
     for source, row in result.teams.get(label, []):
         name, dob, age = _name_dob(row, today)
         t = row.th.fields if row.th else {}
         f = row.fa.fields if row.fa else {}
         mandate = "Not in Thrive" if not row.th else (row.th.mandate or "None")
-        values = [name, dob, age, source, row.fa_status, mandate, row.issue] + _contact_values(row) \
+        values = [name, dob, age, source, row.fa_status, mandate, paying_status(row), row.issue] \
+            + _contact_values(row) \
             + (_medical_values(row) if include_medical else []) \
             + [t.get("photo", ""), t.get("conduct", ""), f.get("consent", "")]
         rows.append((values, source))
     return headers, rows
+
+
+PLAYER_HEADERS = ["Player", "DOB", "Age", "In", "FA status", "Thrive mandate", "Paying through Thrive",
+                  "Reconciliation note"]
+
+
+def paying_status(row: Row) -> str:
+    """Whether the player pays through Thrive, using the same rule as the Not paying list."""
+    if row.th is not None:
+        return "Yes" if row.th.mandate else "No: no active mandate"
+    return "No: not in Thrive" if row.result == "FA only" else "Not expected (not registered)"
+
+# Sections for the full-details window, in the order they are shown
+TEAM_DETAIL_SECTIONS = [("Player", PLAYER_HEADERS), ("Contacts", CONTACT_HEADERS),
+                        ("Medical", MEDICAL_HEADERS), ("Consents", CONSENT_HEADERS)]
+
+
+def team_view_headers(include_medical: bool = True) -> List[str]:
+    """Columns for the compact on-screen team list (the full detail is shown on double-click)."""
+    return ["Player", "Age", "In", "FA status", "Paying", "Main contact"] \
+        + (["Medical"] if include_medical else []) + ["Note"]
+
+
+def team_overview(headers: List[str], values: list, include_medical: bool = True) -> list:
+    """Reduce one full team_report row to the compact on-screen columns."""
+    v = dict(zip(headers, values))
+    contact = (v.get("Account owner (Thrive)") or v.get("Parent/guardian (Thrive)")
+               or v.get("Parent/carer (FA)") or "")
+    out = [v["Player"], v["Age"], v["In"], v["FA status"], v["Paying through Thrive"], contact]
+    if include_medical:
+        flag = v.get("Medical info?") or "Not known"
+        out.append("⚠ Yes" if flag == "Yes" else flag)  # warning sign so it stands out in the list
+    return out + [v["Reconciliation note"]]
 
 
 NOT_PAYING_NOTE = ("Players with no active Thrive mandate, or registered with the FA but not found in Thrive. "
@@ -1051,6 +1084,56 @@ def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> 
             lines.append(f"Emergency: {emergency}")
         blocks.append("\n".join(lines))
     return _pack_messages(head, blocks, SQUAD_FOOTNOTE)
+
+
+def _not_paying(row: Row) -> bool:
+    """Same rule as not_paying_report: no active Thrive mandate, or in the FA but not found in Thrive."""
+    return (row.th is not None and not row.th.mandate) or row.result == "FA only"
+
+
+def not_paying_by_team(result: Result) -> Dict[str, List[Tuple[str, Row]]]:
+    """Not-paying players grouped by team label, in team order. Players in no team go under 'No team'."""
+    out: Dict[str, List[Tuple[str, Row]]] = {}
+    placed = set()
+    for label in team_labels(result):
+        members = [(src, row) for src, row in result.teams.get(label, []) if _not_paying(row)]
+        if members:
+            out[label] = members
+            placed.update(id(row) for _src, row in members)
+    loose = [(_source(row), row) for row in result.rows if _not_paying(row) and id(row) not in placed]
+    if loose:
+        out["No team"] = loose
+    return out
+
+
+NOT_PAYING_FOOTNOTE = ("_FA only players may be in Thrive under a different name: check before chasing. "
+                       "This message contains personal data about children (UK GDPR): do not forward it and "
+                       "delete it when no longer needed._")
+
+
+def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optional[date] = None) -> List[str]:
+    """WhatsApp-ready not-paying list: each player's name, team, whether they are in the FA system and
+    Thrive, and whether they have an active direct debit mandate. team=None means every team."""
+    today = today or date.today()
+    groups = not_paying_by_team(result)
+    if team is not None:
+        groups = {team: groups.get(team, [])}
+    mark = lambda ok: "✅" if ok else "❌"  # noqa: E731  tick and cross
+    blocks, total = [], 0
+    for label, members in groups.items():
+        lines = [f"*{label}*"]
+        for source, row in members:
+            name = row.fa_name or row.thrive_name
+            in_fa = source in ("Both", "FA only") if label != "No team" else row.fa is not None
+            lines.append(f"{name} ({label})\n   FA {mark(in_fa)}  Thrive {mark(row.th is not None)}  "
+                         f"Active mandate {mark(bool(row.th and row.th.mandate))}")
+            total += 1
+        if len(lines) == 1:
+            lines.append("Everyone in this team is paying through Thrive.")
+        blocks.append("\n".join(lines))
+    title = "*Not paying through Thrive*" + (f": {team}" if team else "")
+    head = [title, f"{total} player(s)", f"Updated {today:%d/%m/%Y}"]
+    return _pack_messages(head, blocks, NOT_PAYING_FOOTNOTE)
 
 
 def whatsapp_medical(result: Result, label: str, today: Optional[date] = None) -> List[str]:

@@ -4,6 +4,24 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-09
+
+### Changed
+- Team sheets tab shows a compact list (player, age, where registered, FA status, mandate, main contact, medical Yes/No, note). Double-click or Enter opens all details grouped into Player, Contacts, Medical and Consents. Excel exports are unchanged
+- Layout works in a smaller window (minimum 960x620): Team sheets buttons on their own row, text wraps to the window, Team mappings edit controls stay visible, dialog buttons stay visible
+- Table columns are sized to their contents and row height follows the font, so text is not clipped at higher display scaling
+
+### Added
+- Previous / next team arrows on Team sheets (also Alt+Left / Alt+Right), with "n of N"
+- "Not reconciled yet" notice on every results table until the first run, and a "Files changed" warning in Step 2 if different files are chosen after a run
+- Progress window during Reconcile; files are read and compared in the background so the window stays responsive
+- Copy for WhatsApp on the Not paying tab: name, team, in FA, in Thrive and active mandate for each player, for all teams or one team
+- Search box on Team sheets (searches every field, including phones, emails and conditions) and on Not paying
+- Click a column heading to sort on Team sheets and Not paying; numbers and dates sort by value
+- Players with medical information show in red with a warning sign on Team sheets
+- "Paying" column on Team sheets, and "Paying through Thrive" on team Excel files: Yes, no active mandate, or not in Thrive
+- Remembers the window size and position, maximised state, last tab and last team between runs
+
 ## [1.0.0] - 2026-11-09
 
 First release.
