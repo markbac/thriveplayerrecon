@@ -5,8 +5,9 @@ import json
 import os
 import sys
 import tkinter as tk
-from datetime import date
+from datetime import date, datetime
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 from typing import Dict, Optional
 
 import reconcile_core as rc
@@ -16,6 +17,24 @@ SOURCE_COLOURS = {"Both": "#E2F0D9", "FA only": "#FCE4D6", "Thrive only": "#DDEB
 ROW_COLOURS = {"ok": "#E2F0D9", "warn": "#FFF2CC", "bad": "#F8CBAD", "info": "#EDEDED"}
 IGNORE_LABEL, UNMAPPED_LABEL = "(ignore)", "(unmapped)"
 FONT = ("Segoe UI", 10) if sys.platform == "win32" else None
+NOT_RUN_TEXT = ("Nothing has been compared yet, so this is empty. Choose your two files in Step 1, "
+                "then click Reconcile in Step 2.")
+
+
+def fit_columns(tree, columns, titles, rows, hide_empty=False, keep=2) -> int:
+    """Size each column to its heading and contents (up to a limit). Optionally hide columns that are empty
+    for every row, so a team sheet shows only what it holds. Returns how many columns were hidden."""
+    font = tkfont.nametofont("TkDefaultFont")
+    sample = rows[:300]
+    for i, col in enumerate(columns):
+        widest = font.measure(str(titles[i])) + 28
+        for values in sample:
+            widest = max(widest, font.measure(str(values[i])) + 16)
+        tree.column(col, width=max(70, min(widest, 340)), stretch=False, anchor="w")
+    shown = [c for i, c in enumerate(columns)
+             if not hide_empty or i < keep or any(str(r[i]).strip() for r in rows)]
+    tree["displaycolumns"] = shown if hide_empty else "#all"
+    return len(columns) - len(shown)
 
 # Sidebar groups for the Results tab: (group, [(view title, plain-English description)])
 VIEW_GROUPS = [
@@ -288,6 +307,8 @@ class App(tk.Tk):
         self.team_summary_var = tk.StringVar()
         self.map_warn_var = tk.StringVar()
         self.export_buttons = []
+        self.notices = []
+        self.run_state_var = tk.StringVar(value="Not compared yet")
 
         self._load_logo()
         self._build_menu()
@@ -295,8 +316,11 @@ class App(tk.Tk):
         self._build_top_bar()
         ttk.Label(self, textvariable=self.hint_var, style="Hint.TLabel", wraplength=1200,
                   padding=(12, 0, 12, 4)).pack(fill="x")
-        ttk.Label(self, textvariable=self.status_var, anchor="w", relief="sunken", padding=(6, 1)
-                  ).pack(fill="x", side="bottom")
+        bottom = ttk.Frame(self)
+        bottom.pack(fill="x", side="bottom")
+        ttk.Label(bottom, textvariable=self.status_var, anchor="w", relief="sunken", padding=(6, 1)
+                  ).pack(side="left", fill="x", expand=True)
+        self.progress = ttk.Progressbar(bottom, orient="horizontal", length=260, mode="determinate", maximum=100)
         self.nb = ttk.Notebook(self)
         self.nb.pack(fill="both", expand=True, padx=8, pady=(0, 4))
         self._build_results_tab()
@@ -388,6 +412,8 @@ class App(tk.Tk):
         go.grid(row=0, column=2, sticky="ns", padx=8)
         tip(ttk.Button(go, text="Reconcile", style="Accent.TButton", command=self.run),
             "Compare the two files. Nothing is changed in Thrive or the FA system. (Ctrl+R)").pack(fill="both", expand=True)
+        self.run_state_label = ttk.Label(go, textvariable=self.run_state_var, style="Warn.TLabel", anchor="center")
+        self.run_state_label.pack(fill="x", pady=(4, 0))
 
         share = ttk.LabelFrame(bar, text=" Step 3: share ", padding=8)
         share.grid(row=0, column=3, sticky="ns")
@@ -434,6 +460,7 @@ class App(tk.Tk):
 
         main = ttk.Frame(tab)
         main.pack(side="left", fill="both", expand=True)
+        self._notice(main)
         head = ttk.Frame(main)
         head.pack(fill="x")
         ttk.Label(head, textvariable=self.view_title_var, style="Heading.TLabel").pack(side="left")
@@ -481,19 +508,23 @@ class App(tk.Tk):
         return tree
 
     @staticmethod
-    def _show_table(tree, headers, rows) -> None:
-        tree["columns"] = list(range(len(headers)))
+    def _show_table(tree, headers, rows, hide_empty=False) -> int:
+        columns = list(range(len(headers)))
+        tree["columns"] = columns
         for i, title in enumerate(headers):
             tree.heading(i, text=title)
-            tree.column(i, width=max(70, min(len(title) * 9, 220)), anchor="w")
+        shown = [([v.strftime("%d/%m/%Y") if isinstance(v, date) else v for v in values], source)
+                 for values, source in rows]
+        hidden = fit_columns(tree, columns, headers, [v for v, _ in shown], hide_empty)
         tree.delete(*tree.get_children())
-        for values, source in rows:
-            tree.insert("", "end", tags=(source,), values=[
-                v.strftime("%d/%m/%Y") if isinstance(v, date) else v for v in values])
+        for values, source in shown:
+            tree.insert("", "end", tags=(source,), values=values)
+        return hidden
 
     def _build_team_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
         self.nb.add(tab, text="  Team sheets  ")
+        self._notice(tab)
         ttk.Label(tab, style="Hint.TLabel", wraplength=1100, text=(
             "For team managers: pick a team to see its players with contacts, medical information and consents. "
             "Double-click a player for full details.")).pack(anchor="w")
@@ -535,6 +566,7 @@ class App(tk.Tk):
         tab = ttk.Frame(self.nb, padding=6)
         self.nb.add(tab, text="  Not paying  ")
         self.np_tab = tab
+        self._notice(tab)
         top = ttk.Frame(tab)
         top.pack(fill="x", pady=(0, 6))
         ttk.Label(top, style="Hint.TLabel", wraplength=1000, justify="left", text=(
@@ -671,31 +703,40 @@ class App(tk.Tk):
                                 "  the Thrive data export\n\nOr click \"Find my latest exports\".")
             return
         self.config(cursor="watch")
-        self.update_idletasks()
+        self._progress(5, "Reading the files...")
         try:
             if (rc.detect_kind(fa_path), rc.detect_kind(thrive_path)) == ("thrive", "fa"):
                 fa_path, thrive_path = thrive_path, fa_path  # chosen the wrong way round
                 self.fa_var.set(fa_path)
                 self.thrive_var.set(thrive_path)
                 messagebox.showinfo("Files swapped", "The two files were in the wrong boxes, so I swapped them.")
+            self._progress(10, "Reading the FA report...")
             self.fa_players = rc.load_fa(fa_path)
+            self._progress(35, "Reading the Thrive export...")
             self.thrive_players = rc.load_thrive(thrive_path)
         except rc.ReportError as exc:
+            self._progress(None)
+            self.config(cursor="")
             messagebox.showerror("Could not read file", f"{exc}\n\nCheck each file is in the right box.")
             return
-        finally:
-            self.config(cursor="")
         self.staff = []
         staff_path = self.staff_var.get().strip()
         if staff_path:
+            self._progress(55, "Reading the managers file...")
             try:
                 self.staff = rc.load_staff(staff_path)
             except (rc.ReportError, OSError) as exc:
                 messagebox.showwarning("Managers file not used", f"{exc}\n\nThe comparison will carry on without it.")
         self.cfg.update(fa_path=fa_path, thrive_path=thrive_path, staff_path=staff_path)
+        self._progress(65, "Matching players and checking data quality...")
         added = self._suggest_unmapped(quiet=True)
         self._recompute()
+        self._progress(95, "Building the views...")
         self._set_exports_enabled(True)
+        for note in self.notices:
+            note.pack_forget()
+        self.run_state_var.set(f"Compared at {datetime.now():%H:%M}")
+        self.run_state_label.configure(style="Hint.TLabel")
         missing = self._unmapped_teams()
         msg = (f"Compared {len(self.fa_players)} FA players with {len(self.thrive_players)} Thrive players. "
                "Pick a view on the left of the Results tab. Double-click any row for the full details.")
@@ -705,9 +746,30 @@ class App(tk.Tk):
             msg += f" {len(missing)} Thrive team(s) need a decision on the Team mappings tab."
             self.nb.select(self.map_tab)
         self.hint_var.set(msg)
-        self.status_var.set(f"Reconciled at {date.today():%d/%m/%Y}   |   {os.path.basename(fa_path)}   |   "
-                            f"{os.path.basename(thrive_path)}")
         self._persist()
+        self._progress(100, f"Reconciled at {date.today():%d/%m/%Y}   |   {os.path.basename(fa_path)}   |   "
+                            f"{os.path.basename(thrive_path)}")
+        self.config(cursor="")
+        self.after(900, lambda: self._progress(None))
+
+    def _progress(self, value, text: str = "") -> None:
+        """Move the progress bar (None hides it) and show what is happening."""
+        if value is None:
+            self.progress.pack_forget()
+            return
+        if not self.progress.winfo_ismapped():
+            self.progress.pack(side="right", padx=(6, 0))
+        self.progress["value"] = value
+        if text:
+            self.status_var.set(text)
+        self.update_idletasks()
+
+    def _notice(self, parent):
+        """A prominent 'nothing compared yet' message at the top of a results tab, hidden after Reconcile."""
+        note = tk.Label(parent, text=NOT_RUN_TEXT, background="#FFF2CC", foreground="#7F1D1D", anchor="w",
+                        justify="left", padx=10, pady=6, font=FONT, wraplength=1100)
+        note.pack(fill="x", pady=(0, 6))
+        self.notices.append(note)
 
     def _set_exports_enabled(self, enabled: bool) -> None:
         for b in self.export_buttons:
@@ -772,12 +834,16 @@ class App(tk.Tk):
 
     def _fill_results(self) -> None:
         self.tree.delete(*self.tree.get_children())
+        table = []
         for row in self._visible_rows():
             values = []
             for _, attr, _ in rc.COLUMNS:
                 v = getattr(row, attr)
                 values.append(v.strftime("%d/%m/%Y") if isinstance(v, date) else v)
-            self.tree.insert("", "end", values=values, tags=(row.level,))
+            table.append((values, row.level))
+        fit_columns(self.tree, [c[1] for c in rc.COLUMNS], [c[0] for c in rc.COLUMNS], [v for v, _ in table])
+        for values, level in table:
+            self.tree.insert("", "end", values=values, tags=(level,))
 
     def _sort_by(self, col: str) -> None:
         prev, desc = self.sort_state
@@ -825,11 +891,12 @@ class App(tk.Tk):
             self.team_summary_var.set("")
             return
         headers, rows = rc.team_report(self.result, label, self.medical_var.get())
-        self._show_table(self.team_tree, headers, rows)
+        hidden = self._show_table(self.team_tree, headers, rows, hide_empty=True)
         counts = {k: sum(1 for _, src in rows if src == k) for k in SOURCE_COLOURS}
         people = "   |   ".join(rc.staff_lines(self.result, label))
         self.team_summary_var.set(f"{len(rows)} players: {counts['Both']} in both, {counts['FA only']} FA only, "
-                                  f"{counts['Thrive only']} Thrive only" + (f"   |   {people}" if people else ""))
+                                  f"{counts['Thrive only']} Thrive only" + (f"   |   {people}" if people else "")
+                                  + (f"   |   {hidden} empty columns hidden" if hidden else ""))
 
     def save_staff_template(self) -> None:
         path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel workbook", "*.xlsx")],

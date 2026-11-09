@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+- Tables: columns now fit their contents, and columns that are empty for a team are hidden on the Team sheets tab
+- Clear "nothing compared yet" notice on each results tab and a status under the Reconcile button until you reconcile
+- Progress bar while reconciling, with the current step shown in the status bar
+
 ## [1.0.0] - 2026-11-09
 
 First release.
