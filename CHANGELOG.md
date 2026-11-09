@@ -7,6 +7,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Changed
 - Not paying tab hides columns that are empty for every player, and says which ones. Exports are unaffected
 
+## [1.1.1] - 2026-11-09
+
+### Fixed
+- U4, U5, U6 and training groups are no longer treated as missing from the FA system. They show as "No FA needed" (grey) on team sheets, Not paying and the Excel files, and as "FA not needed" in WhatsApp messages. They are still checked for an active mandate and appear on Not paying without one
+- New Results view "No FA team (U4-U6, training)"; "In Thrive, not in FA" now lists only players who should be registered with the FA
+- U04 added to the default team mappings as a group with no FA team
+- Build pipeline uses the Node 24 versions of the GitHub actions (checkout v7, setup-python v7, upload-artifact v7, download-artifact v8), removing the Node 20 deprecation warning
+
 ## [1.1.0] - 2026-11-09
 
 ### Changed
