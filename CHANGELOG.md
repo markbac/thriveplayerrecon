@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-11
+
+### Fixed
+- Mobile file picker (Android / Pixel 10 Pro): removed restrictive `accept` filter on `<input type="file">` elements so Android's system file picker never greys out `.xlsx` or `.csv` files that have spaces, duplicate numbers or `application/octet-stream` MIME types from Downloads, WhatsApp or Google Drive; file format is detected directly from the file bytes (`PK` header for `.xlsx` or UTF-8 text for `.csv`)
+
 ## [1.3.0] - 2026-11-11
 
 ### Added

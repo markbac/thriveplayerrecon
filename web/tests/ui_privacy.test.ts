@@ -48,7 +48,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const app = new WebApp(root, storage);
 
     // Initially shows "Not reconciled yet" placeholder and version
-    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.3.0');
+    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.3.1');
     expect((root.querySelector('#placeholder-results') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#run-state-label')?.textContent).toBe('Not run yet');
 
@@ -133,7 +133,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const thBytes = await createThriveBuffer(noMandateHeaders);
 
     app.setChosenFilesForTest(
-      { name: 'fa.xlsx', buffer: faBytes.buffer as ArrayBuffer },
+      { name: 'FA Player Export 2026 (1).xlsx ', buffer: faBytes.buffer as ArrayBuffer },
       { name: 'thrive.xlsx', buffer: thBytes.buffer as ArrayBuffer }
     );
     await app.runReconcile();
@@ -152,7 +152,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const faBytes = await createFaBuffer();
     const thBytes = await createThriveBuffer();
     app.setChosenFilesForTest(
-      { name: 'fa.xlsx', buffer: faBytes.buffer as ArrayBuffer },
+      { name: 'FA Player Export 2026 (1).xlsx ', buffer: faBytes.buffer as ArrayBuffer },
       { name: 'thrive.xlsx', buffer: thBytes.buffer as ArrayBuffer }
     );
     await app.runReconcile();
@@ -199,7 +199,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const faBytes = await createFaBuffer();
     const thBytes = await createThriveBuffer();
     app.setChosenFilesForTest(
-      { name: 'fa.xlsx', buffer: faBytes.buffer as ArrayBuffer },
+      { name: 'FA Player Export 2026 (1).xlsx ', buffer: faBytes.buffer as ArrayBuffer },
       { name: 'thrive.xlsx', buffer: thBytes.buffer as ArrayBuffer }
     );
     await app.runReconcile();
