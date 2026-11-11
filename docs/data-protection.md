@@ -22,7 +22,8 @@ The FA report itself carries a warning that copies must be destroyed when no lon
 | Warning on every export | A UK GDPR warning appears each time any export button is clicked. Clicking Cancel creates nothing |
 | Medical details optional | A checkbox leaves them out of team sheets and exports. The warning names medical information when it is included |
 | Least data to each manager | The sharing button writes one file per team, so a manager does not receive other teams' data |
-| Marked confidential | Every exported team sheet carries a confidentiality line |
+| Marked confidential | Every exported team sheet carries a confidentiality line. The printable matchday sheet also has it in the page footer, with a note to keep it out of sight and destroy it when details change |
+| Consents shown | Players without photography consent are flagged on the Missing consents list, the matchday sheet and the squad message, so they are not photographed by mistake |
 | Repository safeguard | `.gitignore` excludes `.xlsx` files so exports are not committed by accident |
 
 ## WhatsApp and the managers file
@@ -36,6 +37,7 @@ Pasting into WhatsApp copies personal data onto every device in the chat and int
 1. Send each manager only their own team's file, by a secure route
 1. Tell managers to keep the file secure and delete it when the season or need ends
 1. Untick **Include medical details** unless the manager needs them
+1. Treat a printed matchday sheet like the file: keep it with the team kit out of sight, do not leave it at the ground, and shred it when the squad or details change
 1. Report any loss or unauthorised sharing as your club's policy and the FA require
 
 ## For developers

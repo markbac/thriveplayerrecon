@@ -5,6 +5,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ## [Unreleased]
 
 ### Added
+- Missing consents: a new tab, Excel export and full-workbook sheet listing players in Thrive without photography, code of conduct or club rules consent (blank, No, declined and similar), photography first, with the answer shown. Only consents present in the export are checked. Team sheets gain a Consents column, team Excel files a Consents missing column, and the WhatsApp squad message warns about players without photography consent
+- Matchday sheet: every team file (Export team files for managers, Export this team) now opens on a print-ready sheet (A4 landscape, one page wide, header repeated) with a Here column, parent contact and phone, emergency contact, highlighted medical alerts and Photos OK, plus blank lines for date, opponent, venue and kick-off
+- Automated tests (`tests/`, pytest) using invented sample exports: loading and missing columns, reconciliation, consents, exports including the matchday sheet, and the GUI end to end. They run in the pipeline on every pull request and before every build
 - Help > Getting the exports (and a "How to get these files" link in the Step 1 heading): step by step for the FA player report and the Thrive export, including every Thrive Manage table columns item to add
 
 ### Changed

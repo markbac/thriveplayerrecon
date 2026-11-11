@@ -110,19 +110,20 @@ Useful things to know:
 
 The **Team sheets** tab is for team managers. Pick a team, or step through teams with the arrow buttons either side of the team box (or **Alt+Left** and **Alt+Right**).
 
-The list shows the key facts for each player: name, whether they pay through Thrive, age, where registered, FA status, main contact, whether medical information is recorded and any note.
+The list shows the key facts for each player: name, whether they pay through Thrive, age, where registered, FA status, main contact, whether medical information is recorded, consents and any note.
 
 - Players **not paying** (no active mandate, or not found in Thrive) have a **red row in bold** and are marked **✖ NOT PAYING**. The red replaces the registration colour; the In column still says where they are registered. The number not paying is shown in red above the list. Tick **Show only not paying** to list just them
 - Players with medical information are shown in red with a warning sign
+- **Consents** shows a tick, or which consents are missing (Photography, Code of conduct, Club rules)
 
 - **Search** finds a player by any detail, including phone numbers, emails and medical conditions
 - Click a column heading to sort, and click again to reverse
 - Double-click a player, or select one and press **Enter**, to see everything, grouped into sections:
   - Contacts from both systems: Thrive account owner and phone, Thrive parent or guardian, FA parent or carer, player email, emergency contact
   - Medical information from Thrive
-  - Photography, code of conduct and FA consent
+  - Photography, code of conduct, club rules and FA consent, and which are missing
 
-The team Excel files keep every column, including **Paying through Thrive**.
+The team Excel files keep every column, including **Paying through Thrive** and **Consents missing**.
 
 Each player is coloured by where they are registered for that team:
 
@@ -141,15 +142,37 @@ The **Not paying** tab lists players with no active Thrive mandate, plus players
 
 Use **Search** and the column headings to narrow and sort the list. **Copy for WhatsApp** makes a message listing each player's name and team, whether they are in the FA system and in Thrive, and whether they have an active mandate. Choose **All teams**, or one team to send to that team's manager.
 
+## Missing consents
+
+The **Missing consents** tab lists players in Thrive who have not given a consent: **Photography**, **Code of conduct** or **Club rules**. A blank answer, No, declined or anything similar counts as not given. The answer itself is shown so you can check it.
+
+Players without photography consent are listed first. Their manager must not photograph them; the team's WhatsApp squad message and matchday sheet both say so.
+
+A consent is only checked if the Thrive export includes it. If one is not in the export, a red note at the top says which: add it in Thrive under **Contacts > Manage table columns** and export again.
+
+Use **Search** and the column headings to narrow and sort, and **Export this list** to save it. The full workbook also has a **Missing consents** sheet.
+
+## Matchday sheet
+
+Every team file (from **Export team files for managers** or **Export this team**) opens on a **Matchday sheet**, ready to print on A4 landscape, one page wide. It has:
+
+- blank lines for the date, opponent, venue and kick-off, and the team's managers
+- a **Here** column to tick who turned up
+- each player's parent contact and phone, and the emergency contact and phone
+- **Medical alert**, highlighted in red, listing conditions, allergies and medicines
+- **Photos OK**: **NO**, highlighted, for players without photography consent
+
+The full player details are on the second sheet. Untick **Include medical details** to leave the medical alerts off. Ask managers to keep the sheet out of sight with the team kit and destroy it when the squad or details change.
+
 ## Step 3: share
 
 | Button | What it does |
 | --- | --- |
-| Export team files for managers | Saves one Excel file per team into a dated folder, ready to send. Each manager should receive only their own team's file |
-| Export full workbook | One Excel file with every view, the not paying list and a sheet for each team |
-| Export this team (Team sheets tab) | Saves the team on screen |
+| Export team files for managers | Saves one Excel file per team into a dated folder, ready to send. Each file opens on the printable matchday sheet. Each manager should receive only their own team's file |
+| Export full workbook | One Excel file with every view, the not paying and missing consents lists, and a sheet for each team |
+| Export this team (Team sheets tab) | Saves the team on screen, with its matchday sheet |
 | Copy for WhatsApp (Team sheets tab) | Text to paste into WhatsApp, see below |
-| Export this list (Not paying tab) | Saves the not paying list |
+| Export this list (Not paying or Missing consents tab) | Saves that list |
 
 Untick **Include medical details** to leave medical information out of team sheets and exports.
 
@@ -161,7 +184,7 @@ A data protection warning appears every time you click an export button. Read it
 
 Managers do not use this tool, so you can send them text instead of a file. On the **Team sheets** tab, choose a team and click **Copy for WhatsApp**. A warning appears first. Then a window shows:
 
-- a **Squad** message: each player's age, whether they are in the FA and Thrive, whether they have a direct debit mandate, and the parent or carer contact and emergency contact
+- a **Squad** message: each player's age, whether they are in the FA and Thrive, whether they have a direct debit mandate, the parent or carer contact and emergency contact, and a clear warning for anyone without photography consent (plus any other missing consent)
 - a separate **Medical** message listing only players with medical information recorded (not shown if **Include medical details** is unticked)
 
 Each message ends with a data protection footnote. Long teams are split into parts, shown as tabs. You can edit the text, click **Copy to clipboard**, then paste into WhatsApp.
