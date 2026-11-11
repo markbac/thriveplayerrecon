@@ -104,16 +104,24 @@ def test_everything_fits_at_minimum_size(app_factory, fa_path, thrive_path):
                 assert w.winfo_width() >= w.winfo_reqwidth() - 2, f"{w} squashed on {a.nb.tab(tab, 'text')}"
 
 
+def test_saved_size_bigger_than_screen_is_shrunk(app_factory):
+    a = app_factory()
+    a.cfg["geometry"] = f"{a.winfo_screenwidth() + 500}x700+0+0"
+    a._restore_window(); a.update()
+    assert a.winfo_width() <= a.winfo_screenwidth()
+
+
 def test_settings_remembered(app_factory, fa_path, thrive_path):
     a = app_factory()
     reconcile_in_app(a, fa_path, thrive_path)
-    a.geometry("1111x700+40+30"); a.update()
+    # a size that fits a 1024x768 screen (CI runners), since a bigger saved size is shrunk to the screen
+    a.geometry("1000x660+10+10"); a.update()
     a.nb.select(a.np_tab)
     a.team_var.set("U12 Black"); a._fill_team_tab()
     a._on_close()
     b = app_factory()
     b.update()
-    assert (b.winfo_width(), b.winfo_height()) == (1111, 700)
+    assert (b.winfo_width(), b.winfo_height()) == (1000, 660)
     assert b.nb.select() == str(b.np_tab)
     reconcile_in_app(b, fa_path, thrive_path)
     assert b.team_var.get() == "U12 Black"
