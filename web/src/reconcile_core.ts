@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.3.0';
+export const VERSION = '1.3.1';
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
 export const NO_FA = 'No FA needed';

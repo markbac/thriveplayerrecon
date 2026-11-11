@@ -81,8 +81,18 @@ export async function readWorkbookSheets(
   buffer: ArrayBuffer | Uint8Array,
   fileName: string
 ): Promise<unknown[][][]> {
-  const base = fileName.split(/[\\/]/).pop() || fileName;
-  if (base.toLowerCase().endsWith('.csv')) {
+  const base = (fileName.split(/[\\/]/).pop() || fileName).trim();
+  const bytes =
+    buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const isZipXlsx =
+    bytes.byteLength >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04;
+  const looksLikeCsvName = /\.csv(\s*\(\d+\))?$/i.test(base);
+
+  if (!isZipXlsx && looksLikeCsvName) {
     try {
       const text = new TextDecoder('utf-8').decode(buffer);
       return [parseCsv(text)];
@@ -102,6 +112,17 @@ export async function readWorkbookSheets(
         : buffer;
     await wb.xlsx.load(ab);
   } catch (exc) {
+    // Fallback: if a CSV file on mobile was renamed without a .csv extension, check if it is UTF-8 CSV text
+    if (!isZipXlsx && bytes.byteLength > 0 && !bytes.subarray(0, 512).includes(0)) {
+      try {
+        const text = new TextDecoder('utf-8').decode(buffer);
+        if (text.includes(',')) {
+          return [parseCsv(text)];
+        }
+      } catch {
+        // Fall through to ReportError below
+      }
+    }
     throw new rc.ReportError(`Could not open ${base}: ${exc}`);
   }
   const sheets: unknown[][][] = [];

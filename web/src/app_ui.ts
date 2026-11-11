@@ -186,21 +186,21 @@ export class WebApp {
             <div class="file-drop-row" id="drop-fa">
               <label for="input-fa">FA registration report</label>
               <div class="file-status-box" id="status-fa" aria-live="polite">No file chosen (tap or drop .xlsx)</div>
-              <input type="file" id="input-fa" accept=".xlsx,.xlsm,.csv" hidden />
+              <input type="file" id="input-fa" hidden />
               <button type="button" id="browse-fa">Browse...</button>
               <button type="button" id="clear-fa" aria-label="Clear FA report" hidden>✕</button>
             </div>
             <div class="file-drop-row" id="drop-thrive">
               <label for="input-thrive">Thrive data export</label>
               <div class="file-status-box" id="status-thrive" aria-live="polite">No file chosen (tap or drop .xlsx)</div>
-              <input type="file" id="input-thrive" accept=".xlsx,.xlsm,.csv" hidden />
+              <input type="file" id="input-thrive" hidden />
               <button type="button" id="browse-thrive">Browse...</button>
               <button type="button" id="clear-thrive" aria-label="Clear Thrive export" hidden>✕</button>
             </div>
             <div class="file-drop-row" id="drop-staff">
               <label for="input-staff">Managers file (optional)</label>
               <div class="file-status-box" id="status-staff" aria-live="polite">Optional (.xlsx or .csv)</div>
-              <input type="file" id="input-staff" accept=".xlsx,.xlsm,.csv" hidden />
+              <input type="file" id="input-staff" hidden />
               <button type="button" id="browse-staff">Browse...</button>
               <button type="button" id="clear-staff" aria-label="Clear managers file" hidden>✕</button>
             </div>
@@ -454,7 +454,7 @@ export class WebApp {
                 <button type="button" id="btn-map-suggest">Suggest for unmapped</button>
                 <button type="button" id="btn-map-reset">Reset to defaults</button>
                 <button type="button" id="btn-settings-export" title="Save your mappings and preferences to a file">Export settings...</button>
-                <input type="file" id="input-settings-import" accept=".json" hidden />
+                <input type="file" id="input-settings-import" hidden />
                 <button type="button" id="btn-settings-import" title="Load mappings and preferences from a file">Import settings...</button>
               </div>
             </div>
@@ -765,8 +765,8 @@ export class WebApp {
       onChange({ name: f.name, buffer });
     };
 
-    browseBtn.addEventListener('click', () => input.click());
-    statusBox.addEventListener('click', () => input.click());
+    browseBtn.addEventListener('click', () => { input.value = ''; input.click(); });
+    statusBox.addEventListener('click', () => { input.value = ''; input.click(); });
     input.addEventListener('change', () => {
       const f = input.files?.[0];
       if (f) void loadDomFile(f);
