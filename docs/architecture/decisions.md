@@ -81,3 +81,27 @@ Short records of the main choices, with the reasons and what was given up.
 **Why:** Plain text is easy to copy, works on any phone and needs no attachment. Medical data is kept in its own message so it can go to fewer people. A tolerant loader suits a file the club writes by hand, and a template removes guesswork.
 
 **Cost:** WhatsApp copies the data onto every device in the chat, outside the club's control. The tool warns before showing the text and the guidance says to send it only to the people who need it.
+
+## 12. Client-side web app built with TypeScript in `web/`
+
+**Decision:** Offer the tool as a static, 100 percent client-side web app in `web/` inside this repository, written in TypeScript with Vite and Vitest, using ExcelJS for reading and styled Excel exports and `fflate` for zip downloads, with no UI framework.
+
+**Why:**
+- **Engine port vs Pyodide:** Porting `reconcile_core.py` to TypeScript keeps the download small (hundreds of kilobytes instead of a 15 to 25 MB WebAssembly Python runtime), starts instantly, works offline from a local zip, and avoids fetching external runtime assets under a strict Content Security Policy. A shared parity test suite (`tests/parity/`) runs against both the Python and TypeScript engines in CI so results cannot drift.
+- **TypeScript and no framework:** Static types catch date, null and structure mismatches in the matching and reporting port. The interface is a set of tabs, tables and dialogs that plain DOM components handle directly without framework churn.
+- **Libraries:** ExcelJS reads `.xlsx` workbooks and writes styled workbooks (fills, fonts, column widths, frozen panes, auto-filters and A4 landscape print setup) in the browser; `fflate` packs the per-team Excel files into one `.zip` download cleanly and fast. All dependencies are pinned and bundled locally with no CDN requests.
+- **Repository layout:** Keeping `web/` in the same repository lets one pull request update rules, docs and the shared parity fixtures together.
+- **Supported browsers:** Current evergreen desktop and mobile browsers (Chromium-based Edge and Chrome, Firefox, Safari on macOS and iPadOS/iOS).
+
+**Cost:** Two implementations of the engine exist while the desktop app and web app run side by side during the pilot (mitigated by the automated parity suite).
+
+## 13. Enforced client-side privacy baseline for the web app
+
+**Decision:** The web app enforces "your data never leaves your computer" technically as well as in guidance:
+- A strict Content Security Policy (`default-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'`) is set in the HTML head so the browser blocks any outgoing `fetch`, `XMLHttpRequest`, WebSocket or beacon call after the page loads.
+- All scripts, stylesheets and icons are bundled with the site itself; no third-party CDNs, fonts, analytics, cookies or trackers are used.
+- `localStorage` holds only user settings (`team_map`, `fuzzy`, `medical`, `team`); player data is held only in memory for the current tab session and never written to web storage.
+- Automated tests verify the CSP and fail if the app attempts any network request or writes player data to storage.
+
+**Why:** Hosting the page on GitHub Pages must not make the host or club a new processor of children's personal and medical data. Technical enforcement makes that guarantee verifiable.
+

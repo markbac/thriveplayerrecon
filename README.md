@@ -1,10 +1,11 @@
 # Thrive Player Recon
 
 [![Build and release](https://github.com/markbac/thriveplayerrecon/actions/workflows/build-release.yml/badge.svg)](https://github.com/markbac/thriveplayerrecon/actions/workflows/build-release.yml)
+[![Deploy web app](https://github.com/markbac/thriveplayerrecon/actions/workflows/deploy-web.yml/badge.svg)](https://github.com/markbac/thriveplayerrecon/actions/workflows/deploy-web.yml)
 
-A Windows desktop tool for grassroots football clubs. It reconciles the **FA player registration report** with the **Thrive data export**, flags data quality problems, and produces a sheet for each team manager.
+A tool for grassroots football clubs, available as both a **client-side web app** (works in any browser on Windows, Mac, Chromebook and tablet) and a **Windows desktop exe**. It reconciles the **FA player registration report** with the **Thrive data export**, flags data quality problems, and produces a sheet for each team manager.
 
-It works entirely on your own computer. Nothing is uploaded or sent anywhere.
+Both versions work entirely on your own computer. In the web app, your files are read, compared and exported in your browser in JavaScript and are **never uploaded** anywhere.
 
 ## What it does
 
@@ -17,10 +18,19 @@ It works entirely on your own computer. Nothing is uploaded or sent anywhere.
 - Lists players **missing a consent** (photography, code of conduct, club rules), photography first
 - Makes **WhatsApp-ready text** for each team (squad, contacts, sign-up and direct debit status, plus a separate medical message) for you to copy and paste, because managers do not have the tool
 - Optionally reads a **managers file** (managers, assistants and their teams) to show who looks after each team
-- Exports everything to Excel: one full workbook, or one file per team ready to send to managers. Each team file opens on a printable **matchday sheet** with contacts, emergency contacts, medical alerts and photo consent
-- Keeps data protection in view: a permanent UK GDPR banner in the app and a warning every time you export
+- Exports everything to Excel: one full workbook, or one file per team ready to send to managers (as a `.zip` in the web app, or a dated folder in the desktop app). Each team file opens on a printable **matchday sheet** with contacts, emergency contacts, medical alerts and photo consent
+- Keeps data protection in view: a permanent UK GDPR banner in the app, a strict Content Security Policy (`connect-src 'none'`) in the web app, and a warning every time you export
 
-## Download and run
+## Using the web app
+
+Open the hosted web app (on GitHub Pages) or download the offline web `.zip` bundle from the workflow artifacts / release to run locally without internet access:
+
+1. **Choose or drag-and-drop your two files** in Step 1: the FA registration report and the Thrive data export (plus an optional managers file)
+1. Click **Reconcile**
+1. On the **Results** tab, pick a view on the left. Click any row for the full details
+1. Use **Share** (Step 3) to download the team files `.zip` for managers, or the full workbook
+
+## Download and run the Windows desktop app
 
 You do not need Python.
 
@@ -32,9 +42,9 @@ You do not need Python.
 
 ## Using the tool
 
-1. **Choose your files.** Click **Find my latest exports** to pick up the newest FA report and Thrive export from your Downloads folder, or use **Browse**
+1. **Choose your files.** In the desktop app, click **Find my latest exports** to pick up the newest FA report and Thrive export from your Downloads folder, or use **Browse** (or drag and drop in the web app)
 1. Click **Reconcile**
-1. On the **Results** tab, pick a view on the left. Double-click any row for the full details
+1. On the **Results** tab, pick a view on the left. Click or double-click any row for the full details
 1. Use **Share** to export team files for managers, or the full workbook
 
 Press **F1** in the app for built-in help. The full guide is in [docs/user-guide.md](docs/user-guide.md).
@@ -47,7 +57,7 @@ Press **F1** in the app for built-in help. The full guide is in [docs/user-guide
 | Team sheets | One team at a time for managers, with contacts, medical information and consents |
 | Not paying | Players with no active mandate, or not found in Thrive |
 | Missing consents | Players who have not given photography, code of conduct or club rules consent |
-| Team mappings | Which Thrive team matches which FA team |
+| Team mappings | Which Thrive team matches which FA team (with settings export and import in the web app) |
 
 ## Getting the two files
 
@@ -67,7 +77,7 @@ The tool finds columns by their headings, so extra columns do no harm. If Name, 
 | [C4 context](docs/architecture/c4-context.md) | The tool and the people and systems around it |
 | [C4 containers](docs/architecture/c4-container.md) | The parts that make up the tool |
 | [C4 components](docs/architecture/c4-component.md) | Inside the reconciliation engine and the GUI |
-| [Deployment and pipeline](docs/architecture/c4-deployment.md) | How the exe is built and released |
+| [Deployment and pipeline](docs/architecture/c4-deployment.md) | How the exe and web app are built and released |
 | [Runtime flow](docs/architecture/runtime-reconcile.md) | What happens when you click Reconcile |
 | [Data model](docs/architecture/data-model.md) | The records the tool works with |
 | [Matching algorithm](docs/architecture/matching-algorithm.md) | How players are paired and scored |
@@ -78,11 +88,30 @@ The tool finds columns by their headings, so extra columns do no harm. If Name, 
 
 ## Run from source
 
+### Desktop app (Python + tkinter)
+
 Requires Python 3.9 or later on Windows. Python from python.org includes the tkinter library the GUI needs.
 
 ```bash
 py -m pip install -r requirements.txt
 py src/app.py
+```
+
+### Web app (TypeScript + Vite)
+
+Requires Node.js 20 or later.
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+To run the cross-engine parity and privacy test suite:
+
+```bash
+cd web
+npm test
 ```
 
 ## Build the exe locally
@@ -91,19 +120,25 @@ Double-click `scripts/build_exe.bat`, or run it from a terminal. The exe is writ
 
 ## Releases
 
-Releases are built and published by GitHub Actions when a version tag is pushed. The steps are in [docs/development.md](docs/development.md). The version lives in one place, `src/version.py`.
+Releases are built and published by GitHub Actions when a version tag is pushed, and the web app is deployed to GitHub Pages on merge to `main`. The steps are in [docs/development.md](docs/development.md). The version is kept in sync between `src/version.py` and `web/package.json`.
 
 ## Project layout
 
 ```text
-src/                     the application
+src/                     the desktop application (Python)
   app.py                 GUI (tkinter), menus, help, exports
   reconcile_core.py      matching, data quality, reports, Excel export (no GUI code)
   version.py             app name and version
   assets/                club crest and icon
+web/                     the client-side web application (TypeScript + Vite)
+  src/reconcile_core.ts  browser port of the reconciliation engine
+  src/excel_io.ts        browser Excel/CSV reading and styled Excel/Zip writing
+  src/app_ui.ts          accessible web UI, tabs, modals and settings
+  tests/                 Vitest parity and privacy test suite
+tests/                   Python pytest suite and shared parity snapshot (tests/parity/)
 docs/                    guides and architecture
-scripts/build_exe.bat    local Windows build
-.github/workflows/       build and release pipeline
+scripts/                 local build and parity fixture scripts
+.github/workflows/       build, release and GitHub Pages pipelines
 ```
 
 ## Data protection

@@ -132,3 +132,26 @@ See [deployment and pipeline](architecture/c4-deployment.md) for the diagram and
 - Manual match overrides so a confirmed "Check match" stops being flagged
 - Code signing for the exe
 - A command line front end for scheduled reports
+
+
+## Web app development and parity checks
+
+The client-side web app lives in `web/`.
+
+```bash
+cd web
+npm install
+npm test
+npm run build
+```
+
+- `scripts/generate_parity.py` generates `tests/parity/expected_parity.json` from the Python engine
+- `tests/test_parity.py` (pytest) and `web/tests/parity.test.ts` (Vitest) both verify that the Python and TypeScript engines produce identical results on the parity dataset
+- `web/tests/ui_privacy.test.ts` checks the Content Security Policy, verifies that zero network requests occur and zero player data is written to `localStorage`, and runs `axe-core` WCAG 2.1 AA accessibility checks
+- To compare both engines locally against the club's real exports without committing those files:
+
+```bash
+py scripts/compare_real_exports.py path\to\fa.xlsx path\to\thrive.xlsx
+```
+
+When bumping the version for a release, update both `src/version.py`, `web/package.json` and `VERSION` in `web/src/reconcile_core.ts`. The CI workflow checks that they match.
