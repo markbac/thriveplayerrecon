@@ -80,7 +80,8 @@ def export_warning(includes_medical: bool) -> str:
 HELP = [
     ("quick", "Quick start", """\
 1.  Click Find my latest exports (or Browse) and choose the two Excel files: the FA player registration report \
-and the Thrive data export.
+and the Thrive data export. "How to get these files" (in the Step 1 heading, or Help, Getting the exports) has \
+the steps for downloading them and the Thrive columns to include.
 2.  Click Reconcile. This compares the two lists and takes a few seconds; a progress window shows each step. \
 Until you do, the tables say "Not reconciled yet". If you choose different files afterwards, Step 2 says \
 "Files changed" until you click Reconcile again.
@@ -89,6 +90,25 @@ Until you do, the tables say "Not reconciled yet". If you choose different files
 5.  Use Share to save Excel files. "Export team files for managers" creates one file per team.
 
 Nothing is changed in Thrive or the FA system. The tool only reads your two files."""),
+    ("exports", "Getting the exports", f"""\
+FA player report
+1.  Go to the club portal: https://clubs.thefa.com/
+2.  Select Players, then Export > Player information.
+3.  Wait for the export to be created, then go to My club > Documents and download it. It can take a few \
+minutes to appear.
+
+Thrive data export
+1.  Log in to Thrive and go to Contacts.
+2.  Select the products you are interested in.
+3.  Open Manage table columns and make sure these are all added:
+{chr(10).join('      - ' + item for item in rc.THRIVE_ALL_ITEMS)}
+4.  Click Export.
+
+Some items, such as Medical, add several columns to the export. Name, Date of birth and Teams are essential. \
+If anything else is missing the tool still runs and tells you what to add: without Active pre-authorisation it \
+cannot tell who is paying, and without the contact, medical or consent items those details are blank.
+
+Save both files to your Downloads folder and "Find my latest exports" will pick them up."""),
     ("results", "What the results mean", """\
 Matched: same name and date of birth in both systems, and the teams agree.
 Matched (team differs): same player, but the team is not the same in both systems.
@@ -139,6 +159,11 @@ These are the players who will not be paying through Thrive.
 
 Players listed as "not found in Thrive" may be there under a different name. Check before you chase.
 
+If the Thrive export has no mandate column (Active pre-authorisation), a red note at the top says so and the list \
+can only show players not found in Thrive.
+
+Use Search and the column headings to narrow and sort the list. Columns that are empty for everyone are hidden.
+
 Copy for WhatsApp makes a message listing each player's name and team, whether they are in the FA system and in \
 Thrive, and whether they have an active mandate. Choose All teams, or one team to send to that team's manager."""),
     ("mappings", "Team mappings", """\
@@ -158,6 +183,13 @@ files when they are no longer needed. This is also an FA requirement for the reg
     ("trouble", "Troubleshooting", """\
 "Does not look like the FA report / Thrive export": you picked the wrong file. The tool can swap the two boxes \
 for you if they are the wrong way round.
+
+"Looks like the Thrive data export, but it is missing: ...": add the named items in Thrive under Contacts, \
+Manage table columns, and export again. See Getting the exports.
+
+A message after reconciling lists missing Thrive items: the comparison still ran, but those details are blank. \
+If Active pre-authorisation is missing, Paying shows "? Unknown" for everyone and the Not paying list only has \
+players not found in Thrive.
 
 "Could not save": the Excel file is probably open. Close it and try again.
 
@@ -402,6 +434,7 @@ class App(tk.Tk):
         bar.add_cascade(label="File", menu=file_menu)
         help_menu = tk.Menu(bar, tearoff=0)
         help_menu.add_command(label="How to use this tool", accelerator="F1", command=lambda: self.show_help("quick"))
+        help_menu.add_command(label="Getting the exports", command=lambda: self.show_help("exports"))
         help_menu.add_command(label="What the results mean", command=lambda: self.show_help("results"))
         help_menu.add_command(label="Team sheets and sharing", command=lambda: self.show_help("teams"))
         help_menu.add_command(label="Looking after the data", command=lambda: self.show_help("privacy"))
@@ -429,7 +462,16 @@ class App(tk.Tk):
         if self.logo:
             ttk.Label(bar, image=self.logo).grid(row=0, column=0, sticky="n", padx=(0, 10))
 
-        files = ttk.LabelFrame(bar, text=" Step 1: choose your two files ", padding=8)
+        # Heading with a "how to get these files" link, so the help costs no space in the rows below
+        heading = ttk.Frame(bar)
+        ttk.Label(heading, text=" Step 1: choose your two files ").pack(side="left")
+        link = tk.Label(heading, text="How to get these files", fg="#0563C1", cursor="hand2",
+                        font=("Segoe UI", 10, "underline") if FONT else None)
+        link.pack(side="left", padx=(4, 4))
+        link.bind("<Button-1>", lambda _e: self.show_help("exports"))
+        tip(link, "Step by step: downloading the FA player report and the Thrive export, and which Thrive columns "
+                  "to include.")
+        files = ttk.LabelFrame(bar, labelwidget=heading, padding=8)
         files.grid(row=0, column=1, sticky="ew")
         files.columnconfigure(1, weight=1)
         rows = (("FA registration report", self.fa_var, "The Excel report downloaded from the FA player registration "
@@ -751,6 +793,8 @@ class App(tk.Tk):
             "name, so check before you chase. Double-click a row for full details."))
                  ).pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.export_buttons.append(b)
+        self.np_warn_var = tk.StringVar()
+        autowrap(ttk.Label(tab, textvariable=self.np_warn_var, style="Warn.TLabel")).pack(fill="x", pady=(0, 4))
         self.np_search_var, self.np_count_var = tk.StringVar(), tk.StringVar()
         self._search_row(tab, self.np_search_var, self.np_count_var,
                          "Type part of a name, team or contact to narrow the list.",
@@ -898,7 +942,8 @@ class App(tk.Tk):
                 q.put(("step", 1))
                 fa_players = rc.load_fa(f)
                 q.put(("step", 2))
-                thrive_players = rc.load_thrive(t)
+                missing_items: list = []
+                thrive_players = rc.load_thrive(t, missing_items)
                 q.put(("step", 3))
                 staff, staff_error = [], None
                 if staff_path:
@@ -906,9 +951,10 @@ class App(tk.Tk):
                         staff = rc.load_staff(staff_path)
                     except (rc.ReportError, OSError) as exc:
                         staff_error = str(exc)
-                q.put(("loaded", (f, t, swapped, fa_players, thrive_players, staff, staff_error)))
+                q.put(("loaded", (f, t, swapped, fa_players, thrive_players, staff, staff_error, missing_items)))
             except rc.ReportError as exc:
-                q.put(("error", f"{exc}\n\nCheck each file is in the right box."))
+                q.put(("error", f"{exc}\n\nCheck each file is in the right box. Help, Getting the exports has "
+                                "the full steps."))
             except Exception as exc:  # noqa: BLE001 - shown to the user rather than lost in a thread
                 q.put(("error", f"Something went wrong reading the files:\n{exc}"))
 
@@ -930,7 +976,8 @@ class App(tk.Tk):
                         messagebox.showerror("Could not reconcile", payload)
                         return
                     elif kind == "loaded":
-                        f, t, swapped, fa_players, thrive_players, staff, staff_error = payload
+                        f, t, swapped, fa_players, thrive_players, staff, staff_error, missing_items = payload
+                        self.missing_items = missing_items
                         self.fa_players, self.thrive_players, self.staff = fa_players, thrive_players, staff
                         if swapped:
                             self.fa_var.set(f)
@@ -1017,10 +1064,31 @@ class App(tk.Tk):
         if missing:
             msg += f" {len(missing)} Thrive team(s) need a decision on the Team mappings tab."
             self.nb.select(self.map_tab)
+        items = getattr(self, "missing_items", [])
+        if items:
+            msg += (" The Thrive export is missing: " + ", ".join(i for i, _u in items)
+                    + ". See Help, Getting the exports.")
         self.hint_var.set(msg)
         self.status_var.set(f"Reconciled at {date.today():%d/%m/%Y}   |   {os.path.basename(fa_path)}   |   "
                             f"{os.path.basename(thrive_path)}")
+        no_mandates = any(i == "Active pre-authorisation" for i, _u in items)
+        self.np_warn_var.set(
+            "Mandates could not be checked: the Thrive export has no Active pre-authorisation column, so this "
+            "list only shows players not found in Thrive. Add Active pre-authorisation in Thrive (Contacts > "
+            "Manage table columns), export again and reconcile." if no_mandates else "")
         self._persist()
+        if items:
+            self._show_missing_columns(items)
+
+    def _show_missing_columns(self, items) -> None:
+        """Tell the user which Thrive 'Manage table columns' items to add, and what each one is for."""
+        lines = "\n".join(f"  • {item}: {use}" for item, use in items)
+        messagebox.showwarning(
+            "Thrive export is missing some columns",
+            "The comparison has run, but the Thrive export does not include these items, so the tool cannot "
+            f"show:\n\n{lines}\n\nTo add them: in Thrive go to Contacts, open Manage table columns, add the "
+            "items above, then Export again and click Reconcile. Some items, such as Medical, add several "
+            "columns to the export.\n\nThe full list and steps are in Help, Getting the exports.")
 
     def _files_changed(self) -> None:
         """Warn that the results on screen come from different files to the ones now chosen."""

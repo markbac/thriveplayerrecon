@@ -4,6 +4,13 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+- Help > Getting the exports (and a "How to get these files" link in the Step 1 heading): step by step for the FA player report and the Thrive export, including every Thrive Manage table columns item to add
+
+### Changed
+- A Thrive export with missing columns is handled. If Name, Date of birth or Teams is missing, the error names the Manage table columns items to add. Any other missing item no longer stops the comparison: a message lists what is missing and what it is used for
+- Without the mandate column (Active pre-authorisation), paying shows as Unknown instead of everyone being flagged as not paying, and the Not paying tab explains why
+
 ## [1.1.2] - 2026-11-09
 
 ### Changed

@@ -49,10 +49,12 @@ Press **F1** in the app for built-in help. The full guide is in [docs/user-guide
 
 ## Getting the two files
 
-- **FA report:** the *Club - Player Report* Excel export from the FA player registration system
-- **Thrive export:** the player data export from Thrive. For team sheets, include the contact, medical and consent fields
+- **FA report:** in the club portal (<https://clubs.thefa.com/>) select **Players**, then **Export > Player information**. When it has been created (it can take a few minutes), download it from **My club > Documents**
+- **Thrive export:** in Thrive go to **Contacts**, select the products you want, add the needed items in **Manage table columns**, then click **Export**
 
-The tool finds columns by their headings, so extra columns do no harm. Fields that are missing are left blank.
+The full steps and the list of Thrive items are in the [user guide](docs/user-guide.md#getting-the-thrive-export) and in the app under **Help > Getting the exports**.
+
+The tool finds columns by their headings, so extra columns do no harm. If Name, Date of birth or Teams is missing it says which to add. Anything else missing is listed after the comparison runs, with what it is used for; without the mandate column, paying shows as Unknown rather than everyone appearing unpaid.
 
 ## Documentation
 
