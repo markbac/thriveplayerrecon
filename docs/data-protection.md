@@ -15,8 +15,9 @@ The FA report itself carries a warning that copies must be destroyed when no lon
 
 | Measure | Detail |
 | --- | --- |
-| Local only | All processing happens on the user's computer. The tool makes no network connections and sends no telemetry |
-| Nothing stored between runs | Players are held in memory while the app is open. The settings file contains file paths, team mappings and options only |
+| Local only | All processing happens on the user's computer (in the desktop app or inside the visitor's browser in the web app). Neither version uploads files, makes network connections with player data, or sends telemetry |
+| Web hosting does not create a processor | Hosting the static web app (for example on GitHub Pages) serves only the application code. The FA report, Thrive export and managers file are read, compared and exported locally in the browser and never leave the user's device, so hosting does not make the host or club a processor of uploaded player data |
+| Nothing stored between runs | Players are held in memory while the app or browser tab is open. The desktop settings file (`%APPDATA%\PlayerReconcile\config.json`) and web settings (`localStorage`) contain team mappings and preferences only, never player data |
 | No change to source systems | The tool only reads the exports |
 | Warning banner | A data protection notice is shown across the top of the app at all times, with a link to this guidance |
 | Warning on every export | A UK GDPR warning appears each time any export button is clicked. Clicking Cancel creates nothing |
@@ -25,6 +26,16 @@ The FA report itself carries a warning that copies must be destroyed when no lon
 | Marked confidential | Every exported team sheet carries a confidentiality line. The printable matchday sheet also has it in the page footer, with a note to keep it out of sight and destroy it when details change |
 | Consents shown | Players without photography consent are flagged on the Missing consents list, the matchday sheet and the squad message, so they are not photographed by mistake |
 | Repository safeguard | `.gitignore` excludes `.xlsx` files so exports are not committed by accident |
+
+## Web app privacy and security checklist
+
+The web version enforces "your data never leaves your computer" by design and verifies it automatically in tests:
+
+- [x] **No third-party CDNs:** all scripts, stylesheets and icons are served from the site itself (or local zip folder)
+- [x] **Strict Content Security Policy (CSP):** `connect-src 'none'`, `form-action 'none'`, `object-src 'none'`, `base-uri 'self'`, and no inline script injection
+- [x] **Zero telemetry:** no analytics, cookies, beacons or external trackers
+- [x] **Settings-only storage:** `localStorage` stores only `team_map`, `fuzzy`, `medical` and `team`; player records are never written to `localStorage`, `sessionStorage` or `IndexedDB`
+- [x] **Automated verification:** the test suite checks the CSP policy, asserts that no network request is made during file loading, reconciliation or export, and checks that `localStorage` never contains player names or FAN IDs
 
 ## WhatsApp and the managers file
 

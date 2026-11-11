@@ -225,3 +225,12 @@ Thrive and the FA name teams differently, for example *U07 Eagles* and *Wilpshir
 | A player shows in both lists but is the same person | Their name or date of birth is too different. Correct it in one system and reconcile again, or lower the Name fuzziness a little |
 | A medical column is blank | The Thrive export did not include that field. Add **Medical** and **Medical notes** in Manage table columns |
 | Windows warns about the exe | It is not code signed. Choose **More info**, then **Run anyway**. Compare the file with `SHA256SUMS.txt` from the release if you want to check it |
+
+
+## Using the web app
+
+The web app provides the same tabs, matching rules and exports inside your browser on Windows, Mac, Chromebook and tablet:
+
+- **Choosing files:** drag and drop the FA report and Thrive export onto the Step 1 boxes, or click **Browse...** (browsers do not allow a web page to scan your Downloads folder automatically, so **Find my latest exports** is desktop-only)
+- **Team files download:** clicking **Export team files for managers** downloads a single `.zip` archive (`Team_files_YYYY-MM-DD.zip`) containing one Excel file per team inside a dated folder
+- **Settings backup:** your team mappings and preferences are saved in your browser's `localStorage` (never player data). On the **Team mappings** tab, use **Export settings...** and **Import settings...** to move your mappings to another computer or save a backup before clearing browser data

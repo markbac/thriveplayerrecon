@@ -224,3 +224,9 @@ __marimo__/
 *.xlsm
 ~$*
 Team files */
+
+
+# Web app build and dependencies
+node_modules/
+web/dist/
+web/.vite/
