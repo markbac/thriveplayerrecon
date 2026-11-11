@@ -142,7 +142,15 @@ Green = in both FA and Thrive.   Orange = FA only.   Blue = Thrive only.
 "Export this team" saves one team. "Export team files for managers" in Share saves one file for every team into a \
 dated folder, ready to send to each manager. Only send each manager their own team's file.
 
-Untick "Include medical details" to leave medical information out."""),
+Each team file opens on a Matchday sheet, ready to print (A4 landscape, one page wide): a tick column for who is \
+there, each player's parent contact and phone, the emergency contact, medical alerts highlighted, and whether \
+photos are OK. Blank lines are left for the date, opponent, venue and kick-off. The full player details are on \
+the second sheet.
+
+The Consents column shows a tick, or which consents are missing (photography, code of conduct, club rules). The \
+Missing consents tab lists everyone across the club.
+
+Untick "Include medical details" to leave medical information out (including the matchday medical alerts)."""),
     ("managers", "Managers file and WhatsApp", """\
 Managers will not have this tool, so the Team sheets tab can make text for you to paste into WhatsApp. Choose a team, \
 click Copy for WhatsApp and you get a squad message (players, contacts, FA and Thrive sign-up and direct debit \
@@ -166,6 +174,17 @@ Use Search and the column headings to narrow and sort the list. Columns that are
 
 Copy for WhatsApp makes a message listing each player's name and team, whether they are in the FA system and in \
 Thrive, and whether they have an active mandate. Choose All teams, or one team to send to that team's manager."""),
+    ("consents", "Missing consents", """\
+Lists players in Thrive who have not given a consent: photography, code of conduct or club rules. A blank answer, \
+No, declined or anything similar counts as not given, and the answer is shown so you can check it.
+
+Players without photography consent are listed first. Their manager must not photograph them; the team's \
+WhatsApp squad message and matchday sheet both say so.
+
+A consent is only checked if the Thrive export includes it. If one is missing from the export a red note says \
+which, so add it in Thrive (Contacts > Manage table columns) and export again.
+
+Use Export this list to save it as Excel. The full workbook also has a Missing consents sheet."""),
     ("mappings", "Team mappings", """\
 Thrive and the FA name their teams differently (for example "U07 Eagles" and "Wilpshire Wanderers U7 Eagles"). \
 The Team mappings tab says which Thrive team matches which FA team.
@@ -394,6 +413,7 @@ class App(tk.Tk):
         self._build_results_tab()
         self._build_team_tab()
         self._build_not_paying_tab()
+        self._build_consents_tab()
         self._build_mapping_tab()
         self._refresh_mapping_table()
         self._set_exports_enabled(False)
@@ -437,6 +457,7 @@ class App(tk.Tk):
         help_menu.add_command(label="Getting the exports", command=lambda: self.show_help("exports"))
         help_menu.add_command(label="What the results mean", command=lambda: self.show_help("results"))
         help_menu.add_command(label="Team sheets and sharing", command=lambda: self.show_help("teams"))
+        help_menu.add_command(label="Missing consents", command=lambda: self.show_help("consents"))
         help_menu.add_command(label="Looking after the data", command=lambda: self.show_help("privacy"))
         help_menu.add_separator()
         help_menu.add_command(label=f"About {APP_TITLE}", command=self.show_about)
@@ -772,6 +793,30 @@ class App(tk.Tk):
                              only_tag=("unpaid", self.team_unpaid_only))
         self.team_tree.bind("<Double-1>", lambda _e: self._team_detail())
         self.team_tree.bind("<Return>", lambda _e: self._team_detail())
+
+    def _build_consents_tab(self) -> None:
+        tab = ttk.Frame(self.nb, padding=6)
+        self.nb.add(tab, text="  Missing consents  ")
+        self.cons_tab = tab
+        top = ttk.Frame(tab)
+        top.pack(fill="x", pady=(0, 6))
+        b = tip(ttk.Button(top, text="Export this list...", command=self.export_consents),
+                "Save this list as an Excel file.")
+        b.pack(side="right", anchor="n")
+        self.export_buttons.append(b)
+        autowrap(ttk.Label(top, style="Hint.TLabel", justify="left", text=(
+            "Players in Thrive who have not given a consent: photography, code of conduct or club rules. Blank, "
+            "No, declined and similar answers are listed, with the answer shown so you can check it. Players "
+            "without photography consent are listed first: tell their manager not to photograph them."))
+                 ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.cons_checked_var = tk.StringVar()
+        autowrap(ttk.Label(tab, textvariable=self.cons_checked_var, style="Warn.TLabel")).pack(fill="x", pady=(0, 4))
+        self.cons_search_var, self.cons_count_var = tk.StringVar(), tk.StringVar()
+        self._search_row(tab, self.cons_search_var, self.cons_count_var,
+                         "Type part of a name, team or consent to narrow the list.",
+                         "Click a column heading to sort. Double-click a row for full details.")
+        self.cons_tree = self._make_tree(tab)
+        self._register_table(self.cons_tree, self.cons_search_var, self.cons_count_var)
 
     def _build_not_paying_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
@@ -1138,6 +1183,14 @@ class App(tk.Tk):
                         [([_cell(v) for v in values], (source,), None, "") for values, source in np_rows],
                         hide_empty=True)
         self.nb.tab(self.np_tab, text=f"  Not paying ({len(np_rows)})  ")
+        c_headers, c_rows, checked = rc.consents_report(self.result)
+        self._set_table(self.cons_tree, c_headers,
+                        [([_cell(v) for v in values], (source,), None, "") for values, source in c_rows])
+        self.nb.tab(self.cons_tab, text=f"  Missing consents ({len(c_rows)})  ")
+        unchecked = [n for _k, n in rc.CONSENT_ITEMS if n not in checked]
+        self.cons_checked_var.set(
+            ("Not checked, because the Thrive export has no answers for: " + ", ".join(unchecked)
+             + ". Add them in Thrive (Contacts > Manage table columns) and export again.") if unchecked else "")
         labels = rc.team_labels(self.result)
         self.team_box["values"] = labels
         if self.team_var.get() not in labels:
@@ -1511,7 +1564,8 @@ class App(tk.Tk):
         if self._write(action, f"Saved {len(rc.team_labels(self.result))} team files to {target}"):
             if messagebox.askyesno("Team files saved",
                                    f"Saved {len(done)} team files (one per team) in:\n{target}\n\n"
-                                   "Open the folder now?"):
+                                   "Each file opens on a printable Matchday sheet, with the full player "
+                                   "details on the second sheet.\n\nOpen the folder now?"):
                 open_folder(target)
 
     def export_not_paying(self) -> None:
@@ -1520,6 +1574,13 @@ class App(tk.Tk):
         path = self._save_as("Not_Paying")
         if path and self._write(lambda: rc.export_not_paying_xlsx(path, self.result), f"Saved {path}"):
             messagebox.showinfo("Saved", f"Saved the not-paying list:\n{path}")
+
+    def export_consents(self) -> None:
+        if not self._need_result() or not self._confirm_export(False):
+            return
+        path = self._save_as("Missing_Consents")
+        if path and self._write(lambda: rc.export_consents_xlsx(path, self.result), f"Saved {path}"):
+            messagebox.showinfo("Saved", f"Saved the missing consents list:\n{path}")
 
     # ------------------------------------------------------------------ team mappings
     def _thrive_team_counts(self) -> Dict[str, int]:

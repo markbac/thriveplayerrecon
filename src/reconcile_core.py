@@ -847,7 +847,33 @@ CONTACT_HEADERS = ["Account owner (Thrive)", "Owner phone (Thrive)", "Parent/gua
 MEDICAL_HEADERS = ["Medical info?", "Has medical conditions", "Medical conditions", "Allergies", "Medicines",
                    "Behavioural conditions", "Disabilities", "Other conditions", "Doctor", "Doctor phone",
                    "Surgery address", "Medical notes"]
-CONSENT_HEADERS = ["Photography policy", "Code of conduct (Thrive)", "FA consent given"]
+CONSENT_HEADERS = ["Consents missing", "Photography policy", "Code of conduct (Thrive)", "Club rules (Thrive)",
+                   "FA consent given"]
+
+# Thrive consents checked for the missing consents report: (field key, short name)
+CONSENT_ITEMS = [("photo", "Photography"), ("conduct", "Code of conduct"), ("club_rules", "Club rules")]
+_REFUSED = re.compile(r"\b(no|not|don'?t|do not|declined?|refused?|withdrawn?|opt(ed)? out)\b", re.I)
+
+
+def consent_given(value: str) -> bool:
+    """True when a Thrive consent answer looks like agreement. Blank, 'No', 'Declined', 'I do not consent'
+    and similar count as not given, so anything doubtful is flagged for a person to check."""
+    value = (value or "").strip()
+    return _meaningful(value) and not _REFUSED.search(value)
+
+
+def consents_checked(result: Result) -> List[Tuple[str, str]]:
+    """The consent items present in this Thrive export. An item no player has any answer for was probably not
+    included in the export, so it is not checked (rather than flagging everyone)."""
+    return [(key, name) for key, name in CONSENT_ITEMS
+            if any(r.th is not None and r.th.fields.get(key, "").strip() for r in result.rows)]
+
+
+def missing_consents(row: Row, checked: List[Tuple[str, str]]) -> List[str]:
+    """Short names of the checked consents this player has not given. Players not in Thrive are not checked."""
+    if row.th is None:
+        return []
+    return [name for key, name in checked if not consent_given(row.th.fields.get(key, ""))]
 
 
 def _medical_values(row: Row) -> List[str]:
@@ -864,6 +890,7 @@ def team_report(result: Result, label: str, include_medical: bool = True, today:
     """(headers, [(values, source)]) for one team, for the manager's player sheet."""
     today = today or date.today()
     headers = PLAYER_HEADERS + CONTACT_HEADERS + (MEDICAL_HEADERS if include_medical else []) + CONSENT_HEADERS
+    checked = consents_checked(result)
     rows = []
     for source, row in result.teams.get(label, []):
         name, dob, age = _name_dob(row, today)
@@ -873,7 +900,8 @@ def team_report(result: Result, label: str, include_medical: bool = True, today:
         values = [name, dob, age, source, row.fa_status, mandate, paying_status(row), row.issue] \
             + _contact_values(row) \
             + (_medical_values(row) if include_medical else []) \
-            + [t.get("photo", ""), t.get("conduct", ""), f.get("consent", "")]
+            + [(", ".join(missing_consents(row, checked)) or "All given") if checked and row.th else "",
+               t.get("photo", ""), t.get("conduct", ""), t.get("club_rules", ""), f.get("consent", "")]
         rows.append((values, source))
     return headers, rows
 
@@ -902,7 +930,7 @@ TEAM_DETAIL_SECTIONS = [("Player", PLAYER_HEADERS), ("Contacts", CONTACT_HEADERS
 def team_view_headers(include_medical: bool = True) -> List[str]:
     """Columns for the compact on-screen team list (the full detail is shown on double-click)."""
     return ["Player", "Paying", "Age", "In", "FA status", "Main contact"] \
-        + (["Medical"] if include_medical else []) + ["Note"]
+        + (["Medical"] if include_medical else []) + ["Consents", "Note"]
 
 
 def paying_label(status: str) -> str:
@@ -929,6 +957,8 @@ def team_overview(headers: List[str], values: list, include_medical: bool = True
     if include_medical:
         flag = v.get("Medical info?") or "Not known"
         out.append("⚠ Yes" if flag == "Yes" else flag)  # warning sign so it stands out in the list
+    consents = v.get("Consents missing", "")
+    out.append("" if not consents else "✔" if consents == "All given" else "✖ " + consents)
     return out + [v["Reconciliation note"]]
 
 
@@ -956,6 +986,33 @@ def not_paying_report(result: Result, today: Optional[date] = None):
                      + c[0:4] + c[4:6] + c[7:9], _source(row)))
     rows.sort(key=lambda r: (r[0][4], r[0][0].split()[-1].lower()))
     return headers, rows
+
+
+CONSENTS_NOTE = ("Players in Thrive with a consent not given: blank, 'No', declined or similar. Check the answer "
+                 "shown, and do not photograph anyone without photography consent.")
+
+
+def consents_report(result: Result, today: Optional[date] = None):
+    """(headers, [(values, source)], checked item names) for Thrive players missing a consent.
+
+    Only consents present in the export are checked (see consents_checked)."""
+    today = today or date.today()
+    checked = consents_checked(result)
+    headers = ["Player", "Age", "Team(s)", "Missing"] + [name for _k, name in checked] \
+        + ["Account owner (Thrive)", "Owner phone (Thrive)", "Parent/guardian email (Thrive)"]
+    rows = []
+    for row in result.rows:
+        missing = missing_consents(row, checked)
+        if not missing:
+            continue
+        name, _dob, age = _name_dob(row, today)
+        t = row.th.fields
+        rows.append(([name, age, row.thrive_teams or row.fa_teams, ", ".join(missing)]
+                     + [t.get(key, "") or "(blank)" for key, _n in checked]
+                     + [t.get("account_owner", ""), t.get("owner_phone", ""), t.get("pg_email", "")], _source(row)))
+    # photography first (it matters on matchday), then by team and surname
+    rows.sort(key=lambda r: ("Photography" not in r[0][3], str(r[0][2]).lower(), r[0][0].split()[-1].lower()))
+    return headers, rows, [n for _k, n in checked]
 
 
 # --------------------------------------------------------------------------- managers file
@@ -1162,6 +1219,7 @@ def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> 
     members = result.teams.get(label, [])
     head = [f"*{label}* squad ({len(members)} players)"] + [f"_{x}_" for x in staff_lines(result, label)] \
         + [f"Updated {today:%d/%m/%Y}"]
+    checked = consents_checked(result)
     blocks = []
     for source, row in members:
         name, _dob, age = _name_dob(row, today)
@@ -1178,6 +1236,12 @@ def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> 
             lines.append(f"Contact: {contact}")
         if emergency and emergency != contact:
             lines.append(f"Emergency: {emergency}")
+        missing = missing_consents(row, checked)
+        if "Photography" in missing:
+            lines.append("\U0001f4f7 *No photography consent*: do not photograph")
+        other = [m for m in missing if m != "Photography"]
+        if other:
+            lines.append("Consent missing: " + ", ".join(other))
         blocks.append("\n".join(lines))
     return _pack_messages(head, blocks, SQUAD_FOOTNOTE)
 
@@ -1362,6 +1426,9 @@ def export_xlsx(path: str, result: Result, team_map: Dict[str, Optional[str]],
     np_headers, np_rows = not_paying_report(result)
     ws.cell(r + 3, 1, "Not paying (no mandate / not in Thrive)")
     ws.cell(r + 3, 2, len(np_rows))
+    r += 1
+    ws.cell(r + 3, 1, "Missing a consent")
+    ws.cell(r + 3, 2, len(consents_report(result)[1]))
     ws.cell(r + 5, 1, "Teams").font = Font(bold=True)
     ws.cell(r + 5, 2, "Players").font = Font(bold=True)
     if result.staff:
@@ -1387,6 +1454,7 @@ def export_xlsx(path: str, result: Result, team_map: Dict[str, Optional[str]],
             _write_table(wb.create_sheet(_sheet_name(wb, "Not paying")), np_headers,
                          [(v, SOURCE_FILLS[src]) for v, src in np_rows], [
                              "Not paying: no active mandate or not in Thrive", NOT_PAYING_NOTE, CONFIDENTIAL])
+            _write_consents(wb.create_sheet(_sheet_name(wb, "Missing consents")), result)
     for label in team_labels(result):
         headers, rows = team_report(result, label, include_medical)
         _write_table(wb.create_sheet(_sheet_name(wb, f"Team {label}")), headers,
@@ -1404,12 +1472,112 @@ def export_xlsx(path: str, result: Result, team_map: Dict[str, Optional[str]],
     wb.save(path)
 
 
+MATCHDAY_NOTE = ("Keep this sheet with the team kit, out of sight. Destroy it when the squad or details change. "
+                 "Medical details come from Thrive and may be incomplete: ask parents if unsure.")
+
+
+def matchday_rows(result: Result, label: str, include_medical: bool = True, today: Optional[date] = None):
+    """(headers, rows, flags) for the printable matchday sheet: who to call and what to watch for.
+
+    flags[i] is a set of 'medical' and/or 'no_photo' for row i, used to highlight cells."""
+    today = today or date.today()
+    photo_checked = any(k == "photo" for k, _n in consents_checked(result))
+    headers = ["Here", "Player", "Age", "Parent / contact", "Contact phone", "Emergency contact",
+               "Emergency phone"] + (["Medical alert"] if include_medical else []) \
+        + (["Photos OK"] if photo_checked else [])
+    rows, flags = [], []
+    for _source_, row in result.teams.get(label, []):
+        name, _dob, age = _name_dob(row, today)
+        t = row.th.fields if row.th else {}
+        f = row.fa.fields if row.fa else {}
+        contact = t.get("account_owner") or t.get("pg_name") or f.get("parent_name", "")
+        phone = _phone(t.get("owner_phone", ""))
+        values = ["", name, age, contact, phone, f.get("emergency", ""), _phone(f.get("emergency_phone", ""))]
+        flag = set()
+        if include_medical:
+            alert = ""
+            if _medical_values(row)[0] == "Yes":
+                parts = [t.get(k, "") for k in ("conditions", "allergies", "medicines", "behavioural",
+                                                "disabilities", "other", "notes") if _meaningful(t.get(k, ""))]
+                alert = "; ".join(parts) or "Medical conditions recorded: check with parent"
+                flag.add("medical")
+            values.append(alert)
+        if photo_checked:
+            ok = row.th is not None and consent_given(t.get("photo", ""))
+            values.append("Yes" if ok else "NO")
+            if not ok:
+                flag.add("no_photo")
+        rows.append(values)
+        flags.append(flag)
+    return headers, rows, flags
+
+
+def _matchday_sheet(ws, result: Result, label: str, include_medical: bool) -> None:
+    """A print-ready sheet: A4 landscape, one page wide, header row repeated, gridlines, large text."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.properties import PageSetupProperties
+
+    headers, rows, flags = matchday_rows(result, label, include_medical)
+    ws.cell(1, 1, f"Matchday sheet: {label}").font = Font(bold=True, size=16)
+    ws.cell(2, 1, "   ".join(staff_lines(result, label)) or "Manager: ______________________").font = Font(size=11)
+    ws.cell(3, 1, "Date: ______________   Opponent: ______________________   Venue: ______________________"
+                  "   Kick-off: ________").font = Font(size=11)
+    hdr = 5
+    thin = Side(style="thin", color="808080")
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for j, title in enumerate(headers, 1):
+        c = ws.cell(hdr, j, title)
+        c.font = Font(bold=True, color="FFFFFF", size=11)
+        c.fill = PatternFill("solid", fgColor="305496")
+        c.alignment = Alignment(wrap_text=True, vertical="center")
+        c.border = box
+    med_col = headers.index("Medical alert") + 1 if "Medical alert" in headers else None
+    photo_col = headers.index("Photos OK") + 1 if "Photos OK" in headers else None
+    for i, (values, flag) in enumerate(zip(rows, flags), hdr + 1):
+        for j, v in enumerate(values, 1):
+            c = ws.cell(i, j, v)
+            c.font = Font(size=11, bold=(j == 2))
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+            c.border = box
+        if med_col and "medical" in flag:
+            ws.cell(i, med_col).fill = PatternFill("solid", fgColor="F8CBAD")
+            ws.cell(i, med_col).font = Font(size=11, bold=True, color="9C0006")
+        if photo_col and "no_photo" in flag:
+            ws.cell(i, photo_col).fill = PatternFill("solid", fgColor="FFC7CE")
+            ws.cell(i, photo_col).font = Font(size=11, bold=True, color="9C0006")
+        ws.row_dimensions[i].height = 30
+    widths = {"Here": 6, "Player": 24, "Age": 5, "Parent / contact": 22, "Contact phone": 16,
+              "Emergency contact": 22, "Emergency phone": 16, "Medical alert": 40, "Photos OK": 9}
+    for j, title in enumerate(headers, 1):
+        ws.column_dimensions[get_column_letter(j)].width = widths.get(title, 14)
+    end = hdr + len(rows) + 2
+    ws.cell(end, 1, CONFIDENTIAL).font = Font(color="C00000", bold=True)
+    ws.cell(end + 1, 1, MATCHDAY_NOTE).font = Font(size=9)
+    # printing
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0  # as many pages tall as needed
+    ws.print_title_rows = f"{hdr}:{hdr}"
+    ws.print_options.horizontalCentered = True
+    ws.page_margins.left = ws.page_margins.right = 0.4
+    ws.page_margins.top = ws.page_margins.bottom = 0.5
+    ws.oddFooter.center.text = "CONFIDENTIAL: children's personal data. Destroy after use."
+    ws.oddFooter.right.text = "Page &P of &N"
+    ws.freeze_panes = ws.cell(hdr + 1, 1)
+
+
 def _team_workbook(result: Result, label: str, include_medical: bool):
+    """A team's file: the printable matchday sheet first, then the full player sheet."""
     from openpyxl import Workbook
     wb = Workbook()
+    wb.active.title = _sheet_name(wb, "Matchday sheet")
+    _matchday_sheet(wb.active, result, label, include_medical)
     headers, rows = team_report(result, label, include_medical)
-    wb.active.title = _sheet_name(wb, f"Team {label}")
-    _write_table(wb.active, headers, [(v, SOURCE_FILLS[src]) for v, src in rows],
+    _write_table(wb.create_sheet(_sheet_name(wb, f"Team {label}")), headers,
+                 [(v, SOURCE_FILLS[src]) for v, src in rows],
                  _team_title(label, rows, staff_lines(result, label)), fill_cols=7)
     return wb
 
@@ -1427,6 +1595,22 @@ def export_each_team(folder: str, result: Result, include_medical: bool = True) 
         export_team_xlsx(path, result, label, include_medical)
         paths.append(path)
     return paths
+
+
+def export_consents_xlsx(path: str, result: Result) -> None:
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.title = "Missing consents"
+    _write_consents(wb.active, result)
+    wb.save(path)
+
+
+def _write_consents(ws, result: Result) -> None:
+    headers, rows, checked = consents_report(result)
+    checked_line = ("Checked: " + ", ".join(checked)) if checked else \
+        "No consent columns were found in the Thrive export, so nothing could be checked."
+    _write_table(ws, headers, [(v, SOURCE_FILLS[src]) for v, src in rows],
+                 ["Missing consents", CONSENTS_NOTE, checked_line, CONFIDENTIAL], fill_cols=4)
 
 
 def export_not_paying_xlsx(path: str, result: Result) -> None:

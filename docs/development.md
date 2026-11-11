@@ -8,6 +8,7 @@ src/
   reconcile_core.py   matching, data quality, reports, Excel export (no GUI code)
   version.py          app name and version, the single source of truth
   assets/             club crest and icon
+tests/                pytest suite: invented sample exports, engine, exports and the GUI end to end
 scripts/build_exe.bat local Windows build
 .github/workflows/    build-release.yml
 docs/                 guides and architecture
@@ -23,6 +24,24 @@ py src/app.py
 ```
 
 `py src/app.py --self-test` runs a headless check and exits with code 0. The pipeline uses the same flag on the built exe.
+
+## Run the tests
+
+```bash
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
+```
+
+| File | Covers |
+| --- | --- |
+| `tests/conftest.py` | Invented sample FA and Thrive exports written as real `.xlsx` files, with birth dates relative to the current season, and a GUI fixture that uses a temporary settings file and answers dialogs automatically |
+| `test_loading.py` | Reading both files, missing essential and optional Thrive columns, file detection |
+| `test_reconcile.py` | Results, views, team membership, no FA groups, paying status, not paying list, unknown mandates, mapping suggestions |
+| `test_consents.py` | What counts as consent given, which items are checked, the report and the squad message |
+| `test_exports.py` | Team files and the matchday sheet (content and print setup), full workbook, lists, WhatsApp text |
+| `test_gui.py` | The app end to end: reconcile, team sheets, search and sort, tabs, missing columns, minimum window size, remembered settings. Skipped when there is no display |
+
+The pipeline runs the suite on every pull request and before every build, so a failing test stops a release. Never use real player data in tests.
 
 ## Build locally
 
