@@ -171,6 +171,90 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
       results.violations.map((v) => `${v.id}: ${v.description} (${v.nodes.length})`)
     ).toEqual([]);
 
+    // Verify zero inline style="" attributes so strict style-src 'self' CSP never blocks styles
+    expect(root.querySelectorAll('[style]').length).toBe(0);
+
     document.body.removeChild(root);
+  });
+
+  it('supports mobile phone / Pixel 10 Pro UX: auto-collapsing steps bar, mobile view picker, and native Web Share', async () => {
+    const origWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 412, // Pixel 10 Pro viewport width
+    });
+
+    const shareSpy = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', {
+      writable: true,
+      configurable: true,
+      value: shareSpy,
+    });
+
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const app = new WebApp(root, makeMockStorage());
+
+    const faBytes = await createFaBuffer();
+    const thBytes = await createThriveBuffer();
+    app.setChosenFilesForTest(
+      { name: 'fa.xlsx', buffer: faBytes.buffer as ArrayBuffer },
+      { name: 'thrive.xlsx', buffer: thBytes.buffer as ArrayBuffer }
+    );
+    await app.runReconcile();
+
+    // Steps grid automatically collapsed into compact summary bar on 412px mobile viewport
+    const stepsGrid = root.querySelector('#steps-grid') as HTMLElement;
+    const collapsedBar = root.querySelector('#steps-collapsed-bar') as HTMLElement;
+    expect(stepsGrid.hidden).toBe(true);
+    expect(collapsedBar.hidden).toBe(false);
+    expect(root.querySelector('#steps-collapsed-summary')?.textContent).toBe(
+      '✔ Reconciled (6 FA, 6 Thrive)'
+    );
+
+    // Expanding and re-collapsing steps works
+    (root.querySelector('#btn-expand-steps') as HTMLButtonElement).click();
+    expect(stepsGrid.hidden).toBe(false);
+    expect(collapsedBar.hidden).toBe(true);
+
+    (root.querySelector('#btn-collapse-steps') as HTMLButtonElement).click();
+    expect(stepsGrid.hidden).toBe(true);
+    expect(collapsedBar.hidden).toBe(false);
+
+    // Mobile view selector dropdown switches Results view and updates counts
+    const mobileSelect = root.querySelector('#select-mobile-view') as HTMLSelectElement;
+    expect(mobileSelect.value).toBe('All players');
+    mobileSelect.value = 'Needs attention';
+    mobileSelect.dispatchEvent(new Event('change'));
+    expect(root.querySelector('#results-view-title')?.textContent).toBe('Needs attention');
+    expect(root.querySelectorAll('#tbody-results tr').length).toBe(3);
+
+    // Mobile fuzziness input syncs with desktop fuzziness input
+    const mobileFuzzy = root.querySelector('#input-fuzzy-mobile') as HTMLInputElement;
+    mobileFuzzy.value = '0.75';
+    mobileFuzzy.dispatchEvent(new Event('change'));
+    expect((root.querySelector('#input-fuzzy') as HTMLInputElement).value).toBe('0.75');
+
+    // Native "Share to app..." button appears in WhatsApp modal when navigator.share is available
+    app.switchTab('not-paying');
+    (root.querySelector('#btn-np-whatsapp') as HTMLButtonElement).click();
+    // Confirm UK GDPR modal first
+    const confirmBtns = Array.from(root.querySelectorAll('#modal-footer button'));
+    const continueBtn = confirmBtns.find((b) => b.textContent === 'Continue') as HTMLButtonElement;
+    continueBtn.click();
+
+    const shareBtn = root.querySelector('.btn-share-native') as HTMLButtonElement;
+    expect(shareBtn).toBeTruthy();
+    expect(shareBtn.textContent).toBe('Share to app...');
+    shareBtn.click();
+    expect(shareSpy).toHaveBeenCalledTimes(1);
+
+    document.body.removeChild(root);
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: origWidth,
+    });
   });
 });

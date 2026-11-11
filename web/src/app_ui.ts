@@ -167,7 +167,15 @@ export class WebApp {
         <button type="button" id="banner-privacy-btn">Data protection guidance</button>
       </section>
 
-      <section class="steps-grid" aria-label="Reconciliation steps">
+      <div class="steps-collapsed-bar" id="steps-collapsed-bar" role="region" aria-label="Reconciled files summary" hidden>
+        <span class="steps-collapsed-summary" id="steps-collapsed-summary"></span>
+        <div class="steps-collapsed-actions">
+          <button type="button" id="btn-expand-steps">Files &amp; Export ▾</button>
+          <button type="button" class="btn-primary btn-compact" id="btn-reconcile-compact">Reconcile</button>
+        </div>
+      </div>
+
+      <section class="steps-grid" id="steps-grid" aria-label="Reconciliation steps">
         <!-- Step 1 -->
         <div class="step-card">
           <div class="step-card-header">
@@ -177,14 +185,14 @@ export class WebApp {
           <div class="file-rows">
             <div class="file-drop-row" id="drop-fa">
               <label for="input-fa">FA registration report</label>
-              <div class="file-status-box" id="status-fa" aria-live="polite">No file chosen (drop .xlsx here)</div>
+              <div class="file-status-box" id="status-fa" aria-live="polite">No file chosen (tap or drop .xlsx)</div>
               <input type="file" id="input-fa" accept=".xlsx,.xlsm,.csv" hidden />
               <button type="button" id="browse-fa">Browse...</button>
               <button type="button" id="clear-fa" aria-label="Clear FA report" hidden>✕</button>
             </div>
             <div class="file-drop-row" id="drop-thrive">
               <label for="input-thrive">Thrive data export</label>
-              <div class="file-status-box" id="status-thrive" aria-live="polite">No file chosen (drop .xlsx here)</div>
+              <div class="file-status-box" id="status-thrive" aria-live="polite">No file chosen (tap or drop .xlsx)</div>
               <input type="file" id="input-thrive" accept=".xlsx,.xlsm,.csv" hidden />
               <button type="button" id="browse-thrive">Browse...</button>
               <button type="button" id="clear-thrive" aria-label="Clear Thrive export" hidden>✕</button>
@@ -205,7 +213,7 @@ export class WebApp {
 
         <!-- Step 2 -->
         <div class="step-card step2-box">
-          <div class="step-card-header" style="width:100%">
+          <div class="step-card-header">
             <h2 class="step-card-title">Step 2: compare</h2>
           </div>
           <button type="button" class="btn-primary" id="btn-reconcile" title="Compare the two files (Ctrl+R)">Reconcile</button>
@@ -216,6 +224,7 @@ export class WebApp {
         <div class="step-card step3-box">
           <div class="step-card-header">
             <h2 class="step-card-title">Step 3: share</h2>
+            <button type="button" class="btn-link" id="btn-collapse-steps" hidden>Hide steps ▲</button>
           </div>
           <button type="button" id="btn-export-teams-zip" class="export-action-btn" disabled>Export team files for managers (.zip)...</button>
           <button type="button" id="btn-export-full" class="export-action-btn" disabled>Export full workbook (.xlsx)...</button>
@@ -247,14 +256,22 @@ export class WebApp {
               <div class="view-list" id="view-list-container"></div>
               <div class="matching-settings-box">
                 <h3>Matching settings</h3>
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <div class="fuzzy-row">
                   <label for="input-fuzzy">Name fuzziness</label>
-                  <input type="number" id="input-fuzzy" min="0.60" max="1.00" step="0.05" style="width:72px;padding:3px 6px;" />
+                  <input type="number" id="input-fuzzy" class="fuzzy-input" min="0.60" max="1.00" step="0.05" />
                 </div>
-                <div style="font-size:12px;color:var(--brand-primary);margin-top:4px;">Lower = more tolerant of typos</div>
+                <div class="fuzzy-hint">Lower = more tolerant of typos</div>
               </div>
             </aside>
             <div class="results-main">
+              <div class="mobile-view-picker-bar">
+                <label for="select-mobile-view">View</label>
+                <select id="select-mobile-view"></select>
+                <div class="mobile-fuzzy-group">
+                  <label for="input-fuzzy-mobile">Fuzziness</label>
+                  <input type="number" id="input-fuzzy-mobile" class="fuzzy-input" min="0.60" max="1.00" step="0.05" />
+                </div>
+              </div>
               <div class="results-head">
                 <h2 id="results-view-title">All players</h2>
                 <span class="summary-stats" id="results-summary-stats"></span>
@@ -292,22 +309,22 @@ export class WebApp {
             For team managers: pick a team to see its players. The list shows the key facts. Click a player (or focus and press Enter) to see their contacts, medical details and consents. Use the arrow buttons (or Alt+Left / Alt+Right) to move between teams.
           </p>
           <div class="team-bar-row">
-            <label for="select-team" style="font-weight:700;font-size:15px;color:var(--brand-primary);">Team</label>
+            <label for="select-team" class="team-select-label">Team</label>
             <button type="button" id="btn-team-prev" class="export-action-btn" title="Previous team (Alt+Left)" aria-label="Previous team" disabled>◀</button>
-            <select id="select-team" style="min-width:220px;padding:4px 8px;"></select>
+            <select id="select-team" class="team-select-dropdown"></select>
             <button type="button" id="btn-team-next" class="export-action-btn" title="Next team (Alt+Right)" aria-label="Next team" disabled>▶</button>
-            <span id="team-pos-label" style="color:var(--brand-primary);font-size:13px;"></span>
+            <span id="team-pos-label" class="team-pos-label"></span>
             <div class="colour-key" aria-label="Registration colour key">
-              <span class="key-chip" style="background:var(--source-both)" title="Registered in both the FA system and Thrive">✔ Both</span>
-              <span class="key-chip" style="background:var(--source-fa)" title="Registered with the FA but not in Thrive">▲ FA only</span>
-              <span class="key-chip" style="background:var(--source-thrive)" title="In Thrive but not registered with the FA">● Thrive only</span>
-              <span class="key-chip" style="background:var(--source-nofa)" title="Thrive group with no FA team (U4-U6, training)">ℹ No FA needed</span>
-              <span class="key-chip" style="background:var(--row-unpaid);font-weight:700" title="No active Thrive mandate, or not found in Thrive">✖ Not paying</span>
+              <span class="key-chip chip-both" title="Registered in both the FA system and Thrive">✔ Both</span>
+              <span class="key-chip chip-fa" title="Registered with the FA but not in Thrive">▲ FA only</span>
+              <span class="key-chip chip-thrive" title="In Thrive but not registered with the FA">● Thrive only</span>
+              <span class="key-chip chip-nofa" title="Thrive group with no FA team (U4-U6, training)">ℹ No FA needed</span>
+              <span class="key-chip chip-unpaid" title="No active Thrive mandate, or not found in Thrive">✖ Not paying</span>
             </div>
           </div>
           <div class="team-status-row">
             <span class="unpaid-banner-count" id="team-unpaid-banner"></span>
-            <span id="team-summary-text" style="font-size:13.5px;"></span>
+            <span id="team-summary-text" class="team-summary-text"></span>
           </div>
           <div class="team-actions-row">
             <button type="button" id="btn-copy-mgr-phone" class="export-action-btn" disabled>Copy manager phone</button>
@@ -345,16 +362,16 @@ export class WebApp {
 
         <!-- Panel 3: Not paying (#21) -->
         <section id="panel-not-paying" role="tabpanel" aria-labelledby="tab-btn-not-paying" class="tabpanel" hidden>
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
-            <p class="view-desc" style="flex:1;min-width:260px;">
+          <div class="panel-top-row">
+            <p class="view-desc panel-top-desc">
               Players with no active Thrive mandate, plus players registered with the FA but not found in Thrive: the ones who will not be paying through Thrive. FA-only players may be in Thrive under another name, so check before you chase. Click a row for full details.
             </p>
-            <div style="display:flex;gap:6px;">
+            <div class="panel-top-actions">
               <button type="button" id="btn-np-whatsapp" class="export-action-btn" disabled>Copy for WhatsApp...</button>
               <button type="button" id="btn-np-export" class="export-action-btn" disabled>Export this list...</button>
             </div>
           </div>
-          <p class="toolbar-warn" id="np-mandate-warning" style="margin:2px 0;"></p>
+          <p class="toolbar-warn warn-block" id="np-mandate-warning"></p>
           <div class="table-toolbar">
             <div class="search-input-group">
               <label for="np-search">Search</label>
@@ -380,13 +397,13 @@ export class WebApp {
 
         <!-- Panel 4: Missing consents -->
         <section id="panel-consents" role="tabpanel" aria-labelledby="tab-btn-consents" class="tabpanel" hidden>
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
-            <p class="view-desc" style="flex:1;min-width:260px;">
+          <div class="panel-top-row">
+            <p class="view-desc panel-top-desc">
               Players in Thrive who have not given a consent: photography, code of conduct or club rules. Blank, No, declined and similar answers are listed, with the answer shown so you can check it. Players without photography consent are listed first: tell their manager not to photograph them.
             </p>
             <button type="button" id="btn-cons-export" class="export-action-btn" disabled>Export this list...</button>
           </div>
-          <p class="toolbar-warn" id="cons-unchecked-warning" style="margin:2px 0;"></p>
+          <p class="toolbar-warn warn-block" id="cons-unchecked-warning"></p>
           <div class="table-toolbar">
             <div class="search-input-group">
               <label for="cons-search">Search</label>
@@ -415,7 +432,7 @@ export class WebApp {
           <p class="view-desc">
             Thrive and the FA name their teams differently. This list says which Thrive team matches which FA team. The defaults suit your current teams. To change one, click a row, choose the FA team below and click Apply. Choose (ignore) for Thrive groups with no FA team, such as training squads. Changes save automatically in your browser.
           </p>
-          <p class="toolbar-warn" id="map-unmapped-warning" style="margin:4px 0;"></p>
+          <p class="toolbar-warn warn-block" id="map-unmapped-warning"></p>
           <div class="table-wrapper">
             <table class="data-table" id="table-mappings" aria-label="Team mappings">
               <thead>
@@ -431,9 +448,9 @@ export class WebApp {
           <div class="mapping-controls">
             <div class="mapping-tools-bar">
               <label for="input-new-map-team">Add a Thrive team by name</label>
-              <input type="text" id="input-new-map-team" placeholder="e.g. U14 Red" style="padding:4px 8px;width:180px;" />
+              <input type="text" id="input-new-map-team" class="map-new-team-input" placeholder="e.g. U14 Red" />
               <button type="button" id="btn-map-add">Add</button>
-              <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+              <div class="map-tools-right">
                 <button type="button" id="btn-map-suggest">Suggest for unmapped</button>
                 <button type="button" id="btn-map-reset">Reset to defaults</button>
                 <button type="button" id="btn-settings-export" title="Save your mappings and preferences to a file">Export settings...</button>
@@ -443,10 +460,10 @@ export class WebApp {
             </div>
             <div class="mapping-edit-bar">
               <span>Thrive team:</span>
-              <strong id="map-selected-label" style="min-width:150px;color:var(--brand-primary);">(none selected)</strong>
+              <strong id="map-selected-label" class="map-selected-label">(none selected)</strong>
               <label for="select-map-target">matches FA team</label>
-              <select id="select-map-target" style="flex:1;min-width:220px;padding:4px 8px;"></select>
-              <button type="button" id="btn-map-apply" class="btn-primary" style="padding:5px 14px;font-size:13.5px;">Apply</button>
+              <select id="select-map-target" class="map-target-select"></select>
+              <button type="button" id="btn-map-apply" class="btn-primary btn-compact">Apply</button>
               <button type="button" id="btn-map-remove">Remove row</button>
             </div>
           </div>
@@ -479,6 +496,8 @@ export class WebApp {
 
     const inputFuzzy = this.root.querySelector('#input-fuzzy') as HTMLInputElement;
     inputFuzzy.value = this.settings.fuzzy.toFixed(2);
+    const inputFuzzyMobile = this.root.querySelector('#input-fuzzy-mobile') as HTMLInputElement;
+    inputFuzzyMobile.value = this.settings.fuzzy.toFixed(2);
 
     this.bindEvents();
   }
@@ -516,9 +535,18 @@ export class WebApp {
       this.setStatus('Downloaded Managers_template.xlsx');
     });
 
-    // Step 2: Reconcile
+    // Step 2: Reconcile + collapsible steps bar (mobile & desktop)
     this.root.querySelector('#btn-reconcile')?.addEventListener('click', () => {
       void this.runReconcile();
+    });
+    this.root.querySelector('#btn-reconcile-compact')?.addEventListener('click', () => {
+      void this.runReconcile();
+    });
+    this.root.querySelector('#btn-expand-steps')?.addEventListener('click', () => {
+      this.setStepsCollapsed(false);
+    });
+    this.root.querySelector('#btn-collapse-steps')?.addEventListener('click', () => {
+      this.setStepsCollapsed(true);
     });
 
     // Step 3: Share & medical toggle
@@ -542,17 +570,28 @@ export class WebApp {
       });
     });
 
-    // Results sidebar & fuzziness & search
+    // Results sidebar, mobile view dropdown & fuzziness & search
     const inputFuzzy = this.root.querySelector('#input-fuzzy') as HTMLInputElement;
-    inputFuzzy.addEventListener('change', () => {
-      const raw = parseFloat(inputFuzzy.value);
+    const inputFuzzyMobile = this.root.querySelector('#input-fuzzy-mobile') as HTMLInputElement;
+    const onFuzzyChange = (sourceInput: HTMLInputElement) => {
+      const raw = parseFloat(sourceInput.value);
       const val = Number.isNaN(raw) ? rc.DEFAULT_FUZZY : Math.min(1.0, Math.max(0.6, Math.round(raw * 100) / 100));
       inputFuzzy.value = val.toFixed(2);
+      inputFuzzyMobile.value = val.toFixed(2);
       if (val !== this.settings.fuzzy) {
         this.settings.fuzzy = val;
         this.persistSettings();
         this.recompute();
       }
+    };
+    inputFuzzy.addEventListener('change', () => onFuzzyChange(inputFuzzy));
+    inputFuzzyMobile.addEventListener('change', () => onFuzzyChange(inputFuzzyMobile));
+
+    const selectMobileView = this.root.querySelector('#select-mobile-view') as HTMLSelectElement;
+    selectMobileView.addEventListener('change', () => {
+      this.currentView = selectMobileView.value;
+      this.renderResultsSidebar();
+      this.renderResultsTable();
     });
 
     const resSearch = this.root.querySelector('#results-search') as HTMLInputElement;
@@ -667,6 +706,7 @@ export class WebApp {
         this.persistSettings();
         (this.root.querySelector('#chk-medical') as HTMLInputElement).checked = this.settings.medical;
         (this.root.querySelector('#input-fuzzy') as HTMLInputElement).value = this.settings.fuzzy.toFixed(2);
+        (this.root.querySelector('#input-fuzzy-mobile') as HTMLInputElement).value = this.settings.fuzzy.toFixed(2);
         this.recompute();
         this.renderMappingsTab();
         this.setStatus(`Imported settings from ${file.name}`);
@@ -715,6 +755,7 @@ export class WebApp {
     onChange: (file: ChosenFile | null) => void
   ): void {
     const dropRow = this.root.querySelector(`#drop-${slot}`) as HTMLElement;
+    const statusBox = this.root.querySelector(`#status-${slot}`) as HTMLElement;
     const input = this.root.querySelector(`#input-${slot}`) as HTMLInputElement;
     const browseBtn = this.root.querySelector(`#browse-${slot}`) as HTMLButtonElement;
     const clearBtn = this.root.querySelector(`#clear-${slot}`) as HTMLButtonElement;
@@ -725,6 +766,7 @@ export class WebApp {
     };
 
     browseBtn.addEventListener('click', () => input.click());
+    statusBox.addEventListener('click', () => input.click());
     input.addEventListener('change', () => {
       const f = input.files?.[0];
       if (f) void loadDomFile(f);
@@ -758,8 +800,8 @@ export class WebApp {
 
   private updateFileSlotsUI(): void {
     const slots: Array<['fa' | 'thrive' | 'staff', ChosenFile | null, string]> = [
-      ['fa', this.faFile, 'No file chosen (drop .xlsx here)'],
-      ['thrive', this.thriveFile, 'No file chosen (drop .xlsx here)'],
+      ['fa', this.faFile, 'No file chosen (tap or drop .xlsx)'],
+      ['thrive', this.thriveFile, 'No file chosen (tap or drop .xlsx)'],
       ['staff', this.staffFile, 'Optional (.xlsx or .csv)'],
     ];
     for (const [id, file, emptyText] of slots) {
@@ -952,6 +994,15 @@ export class WebApp {
     this.applyResult(this.computeResult());
   }
 
+  public setStepsCollapsed(collapsed: boolean): void {
+    const stepsGrid = this.root.querySelector('#steps-grid') as HTMLElement | null;
+    const collapsedBar = this.root.querySelector('#steps-collapsed-bar') as HTMLElement | null;
+    if (stepsGrid && collapsedBar) {
+      stepsGrid.hidden = collapsed;
+      collapsedBar.hidden = !collapsed;
+    }
+  }
+
   private applyResult(res: rc.Result): void {
     this.result = res;
 
@@ -964,6 +1015,16 @@ export class WebApp {
     this.root.querySelectorAll('.export-action-btn').forEach((btn) => {
       (btn as HTMLButtonElement).disabled = false;
     });
+
+    // Update collapsible steps summary bar & enable collapse toggle
+    const summaryEl = this.root.querySelector('#steps-collapsed-summary') as HTMLElement | null;
+    if (summaryEl) {
+      summaryEl.textContent = `✔ Reconciled (${this.faPlayers?.length || 0} FA, ${this.thrivePlayers?.length || 0} Thrive)`;
+    }
+    const collapseBtn = this.root.querySelector('#btn-collapse-steps') as HTMLElement | null;
+    if (collapseBtn) {
+      collapseBtn.hidden = false;
+    }
 
     // Populate team selector
     const labels = rc.team_labels(res);
@@ -994,6 +1055,12 @@ export class WebApp {
     const stateLbl = this.root.querySelector('#run-state-label') as HTMLElement;
     stateLbl.textContent = `Last run ${hh}:${mm}`;
     stateLbl.className = 'run-state-text ok';
+
+    // On mobile / narrow viewports (e.g. Pixel 10 Pro), automatically collapse the Step 1-3 cards
+    // into the compact summary bar so the reconciled results are immediately visible at the top.
+    if (typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth <= 860) {
+      this.setStepsCollapsed(true);
+    }
 
     const unmapped = this.unmappedTeams();
     let msg = `Compared ${this.faPlayers?.length || 0} FA players with ${this.thrivePlayers?.length || 0} Thrive players. Pick a view on the left of the Results tab. Click any row for the full details.`;
@@ -1048,7 +1115,9 @@ export class WebApp {
 
   private renderResultsSidebar(): void {
     const container = this.root.querySelector('#view-list-container') as HTMLElement;
+    const selectMobileView = this.root.querySelector('#select-mobile-view') as HTMLSelectElement;
     container.innerHTML = '';
+    selectMobileView.innerHTML = '';
 
     const tabCounts = new Map<string, number>();
     if (this.result) {
@@ -1071,7 +1140,11 @@ export class WebApp {
       grpHeading.textContent = group;
       container.appendChild(grpHeading);
 
+      const optGroup = document.createElement('optgroup');
+      optGroup.label = group;
+
       for (const [title, desc] of views) {
+        const count = tabCounts.get(title) ?? 0;
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'view-item-btn';
@@ -1084,7 +1157,7 @@ export class WebApp {
         if (this.result) {
           const pill = document.createElement('span');
           pill.className = 'view-count-pill';
-          pill.textContent = String(tabCounts.get(title) ?? 0);
+          pill.textContent = String(count);
           btn.appendChild(pill);
         }
 
@@ -1095,12 +1168,19 @@ export class WebApp {
         });
         container.appendChild(btn);
 
+        const opt = document.createElement('option');
+        opt.value = title;
+        opt.textContent = this.result ? `${title} (${count})` : title;
+        optGroup.appendChild(opt);
+
         if (title === this.currentView) {
           (this.root.querySelector('#results-view-title') as HTMLElement).textContent = title;
           (this.root.querySelector('#results-view-desc') as HTMLElement).textContent = desc;
         }
       }
+      selectMobileView.appendChild(optGroup);
     }
+    selectMobileView.value = this.currentView;
   }
 
   private renderResultsTable(): void {
@@ -1616,7 +1696,7 @@ export class WebApp {
       tr.className = rowClass;
       tr.tabIndex = 0;
       if (name === this.selectedMappingTeam) {
-        tr.style.outline = '2px solid var(--focus-ring)';
+        tr.classList.add('selected-mapping-row');
       }
 
       const tdThrive = document.createElement('td');
@@ -1808,16 +1888,13 @@ export class WebApp {
       body.appendChild(hint);
 
       const pickRow = document.createElement('div');
-      pickRow.style.display = 'flex';
-      pickRow.style.alignItems = 'center';
-      pickRow.style.gap = '8px';
-      pickRow.style.margin = '8px 0';
+      pickRow.className = 'wa-team-pick-row';
       const lbl = document.createElement('label');
       lbl.textContent = 'Team';
       lbl.htmlFor = 'wa-np-team-select';
       const select = document.createElement('select');
       select.id = 'wa-np-team-select';
-      select.style.padding = '4px 8px';
+      select.className = 'wa-team-select';
       for (const t of [allLabel, ...teams]) {
         const opt = document.createElement('option');
         opt.value = t;
@@ -1831,6 +1908,7 @@ export class WebApp {
       tabsBar.className = 'help-nav';
       const textarea = document.createElement('textarea');
       textarea.className = 'whatsapp-textarea';
+      textarea.setAttribute('aria-label', 'WhatsApp message text');
       body.append(tabsBar, textarea);
 
       let currentTexts: string[] = [];
@@ -1862,9 +1940,10 @@ export class WebApp {
       renderMessages();
 
       const footer = document.createElement('div');
-      footer.style.display = 'flex';
-      footer.style.justifyContent = 'space-between';
-      footer.style.width = '100%';
+      footer.className = 'modal-footer-split';
+      const left = document.createElement('div');
+      left.className = 'modal-footer-left';
+
       const copyBtn = document.createElement('button');
       copyBtn.type = 'button';
       copyBtn.className = 'btn-primary';
@@ -1873,11 +1952,24 @@ export class WebApp {
         void navigator.clipboard?.writeText(textarea.value.trim());
         this.setStatus('Copied. Paste it into WhatsApp.');
       });
+      left.appendChild(copyBtn);
+
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        const shareBtn = document.createElement('button');
+        shareBtn.type = 'button';
+        shareBtn.className = 'btn-share-native';
+        shareBtn.textContent = 'Share to app...';
+        shareBtn.addEventListener('click', () => {
+          void navigator.share({ text: textarea.value.trim() }).catch(() => {});
+        });
+        left.appendChild(shareBtn);
+      }
+
       const closeBtn = document.createElement('button');
       closeBtn.type = 'button';
       closeBtn.textContent = 'Close';
       closeBtn.addEventListener('click', () => this.closeModal());
-      footer.append(copyBtn, closeBtn);
+      footer.append(left, closeBtn);
 
       this.openCustomModal('Copy for WhatsApp: not paying', body, footer);
     });
@@ -1891,8 +1983,7 @@ export class WebApp {
   ): void {
     const body = document.createElement('div');
     const descP = document.createElement('p');
-    descP.className = 'view-desc';
-    descP.style.marginBottom = '8px';
+    descP.className = 'view-desc wa-desc';
     descP.textContent = description;
     body.appendChild(descP);
 
@@ -1900,6 +1991,7 @@ export class WebApp {
     tabsBar.className = 'help-nav';
     const textarea = document.createElement('textarea');
     textarea.className = 'whatsapp-textarea';
+    textarea.setAttribute('aria-label', 'WhatsApp message text');
     body.append(tabsBar, textarea);
 
     const texts = parts.map(([, t]) => t);
@@ -1926,16 +2018,10 @@ export class WebApp {
     updateTabButtons();
 
     const footer = document.createElement('div');
-    footer.style.display = 'flex';
-    footer.style.alignItems = 'center';
-    footer.style.justifyContent = 'space-between';
-    footer.style.width = '100%';
-    footer.style.gap = '8px';
+    footer.className = 'modal-footer-split';
 
     const left = document.createElement('div');
-    left.style.display = 'flex';
-    left.style.alignItems = 'center';
-    left.style.gap = '8px';
+    left.className = 'modal-footer-left';
 
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
@@ -1947,10 +2033,20 @@ export class WebApp {
     });
     left.appendChild(copyBtn);
 
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      const shareBtn = document.createElement('button');
+      shareBtn.type = 'button';
+      shareBtn.className = 'btn-share-native';
+      shareBtn.textContent = 'Share to app...';
+      shareBtn.addEventListener('click', () => {
+        void navigator.share({ text: textarea.value.trim() }).catch(() => {});
+      });
+      left.appendChild(shareBtn);
+    }
+
     if (footerNote) {
       const noteSpan = document.createElement('span');
-      noteSpan.style.fontSize = '12.5px';
-      noteSpan.style.color = 'var(--brand-primary)';
+      noteSpan.className = 'modal-footer-note';
       noteSpan.textContent = footerNote;
       left.appendChild(noteSpan);
     }
@@ -2093,38 +2189,36 @@ export class WebApp {
   private openProgressModal(): void {
     const body = document.createElement('div');
     const p1 = document.createElement('p');
-    p1.style.fontWeight = '700';
+    p1.className = 'progress-lead-text';
     p1.textContent = 'Comparing the FA report with the Thrive export...';
     const stepText = document.createElement('p');
     stepText.id = 'progress-modal-step-text';
     stepText.textContent = `Step 1 of ${PROGRESS_STEPS.length}: ${PROGRESS_STEPS[0]}...`;
 
-    const barOuter = document.createElement('div');
-    barOuter.className = 'progress-bar-outer';
-    const barInner = document.createElement('div');
-    barInner.className = 'progress-bar-inner';
-    barInner.id = 'progress-modal-bar-inner';
-    barInner.style.width = '10%';
-    barOuter.appendChild(barInner);
+    const progressEl = document.createElement('progress');
+    progressEl.className = 'progress-native';
+    progressEl.id = 'progress-modal-bar-inner';
+    progressEl.max = 100;
+    progressEl.value = 10;
 
     const note = document.createElement('p');
     note.className = 'view-desc';
     note.textContent = 'Nothing is uploaded and nothing is changed in Thrive or the FA system.';
 
-    body.append(p1, stepText, barOuter, note);
+    body.append(p1, stepText, progressEl, note);
     const footer = document.createElement('div');
     this.openCustomModal('Reconciling', body, footer);
   }
 
   private updateProgressStep(idx: number): void {
     const stepText = this.root.querySelector('#progress-modal-step-text') as HTMLElement | null;
-    const barInner = this.root.querySelector('#progress-modal-bar-inner') as HTMLElement | null;
+    const progressEl = this.root.querySelector('#progress-modal-bar-inner') as HTMLProgressElement | null;
     const n = PROGRESS_STEPS.length;
     if (stepText && PROGRESS_STEPS[idx]) {
       stepText.textContent = `Step ${idx + 1} of ${n}: ${PROGRESS_STEPS[idx]}...`;
     }
-    if (barInner) {
-      barInner.style.width = `${Math.round(((idx + 0.5) / n) * 100)}%`;
+    if (progressEl) {
+      progressEl.value = Math.round(((idx + 0.5) / n) * 100);
     }
   }
 
@@ -2170,8 +2264,7 @@ export class WebApp {
       const present = fields.filter((f) => Boolean(data[f]));
       if (present.length === 0) {
         const emptyP = document.createElement('p');
-        emptyP.style.color = '#64748b';
-        emptyP.style.margin = '4px 0';
+        emptyP.className = 'detail-empty-note';
         emptyP.textContent = 'Nothing recorded';
         body.appendChild(emptyP);
       } else {
@@ -2258,9 +2351,7 @@ export class WebApp {
   private showMessageModal(title: string, message: string): void {
     const body = document.createElement('div');
     const pre = document.createElement('pre');
-    pre.style.whiteSpace = 'pre-wrap';
-    pre.style.fontFamily = 'var(--font-sans)';
-    pre.style.margin = '0';
+    pre.className = 'modal-message-pre';
     pre.textContent = message;
     body.appendChild(pre);
 
@@ -2278,17 +2369,12 @@ export class WebApp {
   private openConfirmModal(title: string, message: string, onConfirm: () => void | Promise<void>): void {
     const body = document.createElement('div');
     const pre = document.createElement('pre');
-    pre.style.whiteSpace = 'pre-wrap';
-    pre.style.fontFamily = 'var(--font-sans)';
-    pre.style.margin = '0';
+    pre.className = 'modal-message-pre';
     pre.textContent = message;
     body.appendChild(pre);
 
     const footer = document.createElement('div');
-    footer.style.display = 'flex';
-    footer.style.justifyContent = 'flex-end';
-    footer.style.gap = '8px';
-    footer.style.width = '100%';
+    footer.className = 'modal-footer-right';
 
     const cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
