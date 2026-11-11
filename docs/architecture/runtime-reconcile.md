@@ -48,7 +48,10 @@ flowchart LR
 | Situation | Behaviour |
 | --- | --- |
 | A file is not the expected report | The engine raises `ReportError` naming the file and the columns expected. The GUI shows it in plain English |
+| The right file but required columns missing | `ReportError` names the missing items in the source system's words (for Thrive, the Manage table columns items such as Name or Teams) and includes the steps to export again |
+| Optional Thrive items missing | `load_thrive` reports them through its `missing` list; the GUI lists each item and what it is used for after the comparison runs |
+| No Thrive mandate column | Every mandate is `MANDATE_UNKNOWN`: paying shows Unknown, nobody is flagged as not paying, and the Not paying tab explains why |
 | Files in the wrong boxes | Detected from the headings and swapped automatically |
 | The output file is open in Excel | The save fails with a message asking the user to close it and try again |
 | A Thrive team is not in the mapping | Shown in red on the Team mappings tab and flagged on affected players. Never silently ignored |
-| An optional column is missing | The field is left blank and everything else still works |
+| An optional FA column is missing | The field is left blank and everything else still works |

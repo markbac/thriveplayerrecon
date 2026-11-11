@@ -7,9 +7,47 @@ This guide is for the club administrator. The same help is built into the app: p
 Download two Excel files and leave them in your Downloads folder:
 
 1. The **FA report**: the *Club - Player Report* from the FA player registration system
-1. The **Thrive export**: the player data export from Thrive. Include the contact, medical and consent fields if you want them on the team sheets
+1. The **Thrive export**: the player data export from Thrive
 
-The tool only reads these files. It never changes anything in the FA system or Thrive.
+The tool only reads these files. It never changes anything in the FA system or Thrive. The same steps are in the app under **Help > Getting the exports**, or click the **How to get these files** link in the Step 1 heading.
+
+### Getting the FA report
+
+1. Go to the club portal: <https://clubs.thefa.com/>
+1. Select **Players**, then **Export > Player information**
+1. Wait for the export to be created, then go to **My club > Documents** and download it. It can take a few minutes to appear
+
+### Getting the Thrive export
+
+1. Log in to Thrive and go to **Contacts**
+1. Select the products you are interested in
+1. Open **Manage table columns** and make sure all of these are added:
+   - Name
+   - Date of birth
+   - Teams
+   - Active pre-authorisation
+   - Account owner
+   - Owner phone
+   - Parents/guardian name, required for fa registration
+   - Parents/guardian email address for fa registration
+   - Parents/guardian date of birth required for fa registration
+   - Medical
+   - Medical notes
+   - Wwfc photography policy
+   - Wwfc code of conduct - youth players
+   - Club rules
+1. Click **Export**
+
+Some items, such as **Medical**, add several columns to the export.
+
+**Name**, **Date of birth** and **Teams** are essential: without them the tool stops and says which to add. If anything else is missing, the comparison still runs and a message lists the missing items and what they are used for:
+
+| Missing item | Effect |
+| --- | --- |
+| Active pre-authorisation | The tool cannot tell who is paying. The Paying column shows Unknown, and Not paying lists only players not found in Thrive |
+| Account owner, Owner phone, Parents/guardian items | Contact details are blank on team sheets and in messages |
+| Medical, Medical notes | Medical information is blank |
+| Photography policy, code of conduct, Club rules | Consents are blank |
 
 ## Step 1: choose your files
 
@@ -157,7 +195,10 @@ Thrive and the FA name teams differently, for example *U07 Eagles* and *Wilpshir
 | Problem | What to do |
 | --- | --- |
 | The file does not look like the expected report | Check you chose the right files. The tool can swap them if they are the wrong way round |
+| The Thrive export "is missing: Name, Teams" (or similar) | Add those items in Thrive under **Contacts > Manage table columns** and export again. See [Getting the Thrive export](#getting-the-thrive-export) |
+| A message lists missing Thrive items after reconciling | The comparison still ran, but those details are blank. Add the items in Manage table columns and export again |
+| Paying shows **? Unknown** for everyone | The Thrive export has no mandate column. Add **Active pre-authorisation** and export again |
 | Could not save | The Excel file is open. Close it and try again |
 | A player shows in both lists but is the same person | Their name or date of birth is too different. Correct it in one system and reconcile again, or lower the Name fuzziness a little |
-| A medical column is blank | The Thrive export did not include that field |
+| A medical column is blank | The Thrive export did not include that field. Add **Medical** and **Medical notes** in Manage table columns |
 | Windows warns about the exe | It is not code signed. Choose **More info**, then **Run anyway**. Compare the file with `SHA256SUMS.txt` from the release if you want to check it |

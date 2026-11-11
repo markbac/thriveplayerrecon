@@ -71,12 +71,16 @@ classDiagram
 | `ThrivePlayer` | Thrive export | One per row. `teams` is the de-duplicated list from the comma separated cell. `fields` holds contacts, medical information and consents |
 | `Row` | One pairing or one unpaired player | Carries the source records, so reports can reach any field without another lookup |
 | `Staff` | A manager or assistant manager from the optional managers file | `kind` is manager, assistant or other, from the role text |
-| `Result` | The whole reconciliation | `teams` maps a team label to a list of source and row, where source is Both, FA only or Thrive only |
+| `Result` | The whole reconciliation | `teams` maps a team label to a list of source and row, where source is Both, FA only, Thrive only or No FA needed (groups mapped to ignore) |
 | Team mapping | Settings file and defaults | A dictionary from Thrive team to FA team name, or to none for ignore |
 
 ## Optional field lookup
 
 Thrive fields such as medical information are found by heading text, not position. Each logical field has a list of accepted headings, matched exactly, then by prefix, then by containment. This is what lets the tool cope with extra columns and the club's own wording such as *wwfc photography policy*. The lists are `THRIVE_FIELDS` and `FA_FIELDS` in `reconcile_core.py`.
+
+`THRIVE_OPTIONAL_ITEMS` ties each Thrive *Manage table columns* item to the fields it fills (one item, such as Medical, can add several columns) and to what the tool uses it for. `missing_thrive_items` uses it to tell the user exactly which items to add. `THRIVE_REQUIRED_ITEMS` does the same for the essential columns (Name, Date of birth, Teams).
+
+When the export has no `Active mandates` column, every `ThrivePlayer.mandate` is `MANDATE_UNKNOWN`, so payment is reported as Unknown instead of everyone appearing unpaid.
 
 ## Result values
 
@@ -88,5 +92,5 @@ Thrive fields such as medical information are found by heading text, not positio
 | Check match | warn | Probably the same person, name or date of birth differs |
 | Thrive only | bad | Not found in the FA report |
 | FA only | bad | Registered with the FA but not found in Thrive |
-| Thrive only (expected) | info | Only in teams the mapping ignores, such as U5 and U6 |
+| Thrive only (expected) | info | Only in teams the mapping ignores, such as U4 to U6 and training groups. FA registration not needed; the mandate is still checked |
 | FA only (not registered) | info | FA status is Cancelled or Transferred |

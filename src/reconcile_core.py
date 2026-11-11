@@ -92,6 +92,36 @@ THRIVE_FIELDS = {
     "doctor_phone": ["doctors phone", "doctor phone"], "surgery": ["surgery address"],
     "notes": ["medical notes"],
 }
+MANDATE_HEADER = "active mandates"
+MANDATE_UNKNOWN = "Unknown"  # the Thrive export had no mandate column, so payment could not be checked
+
+# Items to tick in Thrive (Contacts > Manage table columns) and the export columns each one adds.
+# Some items, such as Medical, add several columns.
+THRIVE_REQUIRED_ITEMS = {"first name": "Name", "last name": "Name", "date of birth": "Date of birth",
+                         "teams": "Teams"}
+THRIVE_OPTIONAL_ITEMS = [  # (Manage table columns item, field keys it fills, what the tool uses it for)
+    ("Active pre-authorisation", ["_mandate"], "who is paying: the Paying column and the Not paying list"),
+    ("Account owner", ["account_owner"], "the main contact on team sheets and WhatsApp messages"),
+    ("Owner phone", ["owner_phone"], "contact phone numbers and Copy for WhatsApp"),
+    ("Parents/guardian name, required for fa registration", ["pg_name"], "parent contact details"),
+    ("Parents/guardian email address for fa registration", ["pg_email"], "parent email addresses"),
+    ("Parents/guardian date of birth required for fa registration", ["pg_dob"], "parent details on team sheets"),
+    ("Medical", ["has_medical", "conditions", "allergies", "medicines", "behavioural", "disabilities", "other",
+                 "doctor", "doctor_phone", "surgery"], "medical information on team sheets and messages"),
+    ("Medical notes", ["notes"], "medical notes"),
+    ("Wwfc photography policy", ["photo"], "photography consent"),
+    ("Wwfc code of conduct - youth players", ["conduct"], "code of conduct"),
+    ("Club rules", ["club_rules"], "club rules"),
+]
+THRIVE_ALL_ITEMS = ["Name", "Date of birth", "Teams"] + [item for item, _k, _u in THRIVE_OPTIONAL_ITEMS]
+
+THRIVE_HOW_TO = ("To get the Thrive export: log in to Thrive, go to Contacts and select the products you are "
+                 "interested in. In Manage table columns add: " + ", ".join(THRIVE_ALL_ITEMS) + ". Then click "
+                 "Export. Some items, such as Medical, add several columns to the export.")
+FA_HOW_TO = ("To get the FA export: go to the club portal (https://clubs.thefa.com/), select Players, then "
+             "Export > Player information. Wait for the export to be created, then go to My club > Documents to "
+             "download it. It can take a few minutes to appear.")
+
 FA_FIELDS = {
     "email": ["email address"], "parent_email": ["parent/carer email address"],
     "parent_name": ["parent/carer name"], "emergency": ["emergency contact"],
@@ -226,28 +256,43 @@ def _to_date(value) -> Optional[date]:
     return None
 
 
-def _read_table(path: str, required: List[str], what: str):
-    """Return (rows, column index by header) from the first sheet that has the headers."""
+def _read_table(path: str, required: List[str], what: str, labels: Optional[Dict[str, str]] = None,
+                how_to: str = ""):
+    """Return (rows, column index by header) from the first sheet that has the headers.
+
+    If no header row has them all but one has most, the error names the missing columns (using `labels`,
+    for example the Thrive Manage table columns item) and says how to get a full export."""
     import openpyxl
 
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except Exception as exc:  # corrupt file, wrong format, locked by Excel
         raise ReportError(f"Could not open {os.path.basename(path)}: {exc}") from exc
+    best: List[str] = []
     try:
         for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
             for i, row in enumerate(rows[:40]):
                 cells = [_hdr(c) for c in row]
-                if all(h in cells for h in required):
+                present = [h for h in required if h in cells]
+                if len(present) == len(required):
                     cols = {h: j for j, h in enumerate(cells) if h}
                     return rows[i + 1:], cols
+                if len(present) > len(best):
+                    best = present
     finally:
         wb.close()
-    raise ReportError(
-        f"{os.path.basename(path)} does not look like the {what}. "
-        f"Expected columns: {', '.join(required)}."
-    )
+    name = os.path.basename(path)
+    if len(best) >= max(2, len(required) // 2):  # the right kind of file, but columns are missing
+        labels = labels or {}
+        missing = []
+        for h in required:
+            if h not in best and labels.get(h, h) not in missing:
+                missing.append(labels.get(h, h))
+        raise ReportError(f"{name} looks like the {what}, but it is missing: {', '.join(missing)}.\n\n"
+                          + (how_to or f"Export it again with these columns."))
+    raise ReportError(f"{name} does not look like the {what}. Expected columns: {', '.join(required)}."
+                      + (f"\n\n{how_to}" if how_to else ""))
 
 
 def _find_col(cols: Dict[str, int], candidates: List[str]) -> Optional[int]:
@@ -329,7 +374,7 @@ def find_latest_exports(folder: str, limit: int = 40) -> Dict[str, str]:
 
 def load_fa(path: str) -> List[FAPlayer]:
     """Read the FA 'Club - Player Report'. One FA player can span several rows (one per team)."""
-    rows, c = _read_table(path, FA_REQUIRED, "FA player registration report")
+    rows, c = _read_table(path, FA_REQUIRED, "FA player registration report", how_to=FA_HOW_TO)
     suspended_col = c.get("suspended")
     parent_col = c.get("parent/carer name")
     fa_cols = _field_cols(c, FA_FIELDS)
@@ -360,10 +405,23 @@ def load_fa(path: str) -> List[FAPlayer]:
     return list(players.values())
 
 
-def load_thrive(path: str) -> List[ThrivePlayer]:
-    """Read the Thrive data export. The 'teams' cell is a comma separated list."""
-    rows, c = _read_table(path, THRIVE_REQUIRED, "Thrive data export")
-    mandate_col = c.get("active mandates")
+def missing_thrive_items(cols: Dict[str, int]) -> List[Tuple[str, str]]:
+    """(Manage table columns item, what it is used for) for optional Thrive items not in the export."""
+    found = set(_field_cols(cols, THRIVE_FIELDS))
+    if MANDATE_HEADER in cols:
+        found.add("_mandate")
+    return [(item, use) for item, keys, use in THRIVE_OPTIONAL_ITEMS if not found.intersection(keys)]
+
+
+def load_thrive(path: str, missing: Optional[list] = None) -> List[ThrivePlayer]:
+    """Read the Thrive data export. The 'teams' cell is a comma separated list.
+
+    Pass a list as `missing` to receive the optional items the export lacks (see missing_thrive_items).
+    Without the mandate column every player's mandate is MANDATE_UNKNOWN rather than treated as unpaid."""
+    rows, c = _read_table(path, THRIVE_REQUIRED, "Thrive data export", THRIVE_REQUIRED_ITEMS, THRIVE_HOW_TO)
+    if missing is not None:
+        missing.extend(missing_thrive_items(c))
+    mandate_col = c.get(MANDATE_HEADER)
     th_cols = _field_cols(c, THRIVE_FIELDS)
     players: List[ThrivePlayer] = []
     for r in rows:
@@ -380,7 +438,7 @@ def load_thrive(path: str) -> List[ThrivePlayer]:
             extra["owner_phone"] = _dedupe_csv(extra["owner_phone"])
         players.append(ThrivePlayer(
             first, last, _to_date(r[c["date of birth"]]),
-            _s(r[mandate_col]) if mandate_col is not None else "", teams, extra))
+            _s(r[mandate_col]) if mandate_col is not None else MANDATE_UNKNOWN, teams, extra))
     return players
 
 
@@ -824,9 +882,15 @@ PLAYER_HEADERS = ["Player", "DOB", "Age", "In", "FA status", "Thrive mandate", "
                   "Reconciliation note"]
 
 
+def mandate_known(th) -> bool:
+    return th is not None and th.mandate != MANDATE_UNKNOWN
+
+
 def paying_status(row: Row) -> str:
     """Whether the player pays through Thrive, using the same rule as the Not paying list."""
     if row.th is not None:
+        if not mandate_known(row.th):
+            return "Unknown: add Active pre-authorisation to the Thrive export"
         return "Yes" if row.th.mandate else "No: no active mandate"
     return "No: not in Thrive" if row.result == "FA only" else "Not expected (not registered)"
 
@@ -847,6 +911,8 @@ def paying_label(status: str) -> str:
         return "✔ Yes"
     if status.startswith("No"):
         return "✖ NOT PAYING (" + status.split(":", 1)[1].strip() + ")"
+    if status.startswith("Unknown"):
+        return "? Unknown (no mandate column)"
     return status
 
 
@@ -1104,7 +1170,7 @@ def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> 
         mark = lambda ok: "\u2705" if ok else "\u274c"  # noqa: E731  tick and cross
         lines = [f"*{name}*" + (f" ({age})" if age != "" else ""),
                  f"{_fa_mark(source)}  Thrive {mark(row.th is not None)}  "
-                 f"Direct debit {mark(bool(row.th and row.th.mandate))}"]
+                 f"Direct debit {_mandate_mark(row)}"]
         contact = " ".join(x for x in (t.get("account_owner") or t.get("pg_name") or f.get("parent_name", ""),
                                        _phone(t.get("owner_phone", ""))) if x)
         emergency = " ".join(x for x in (f.get("emergency", ""), _phone(f.get("emergency_phone", ""))) if x)
@@ -1114,6 +1180,13 @@ def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> 
             lines.append(f"Emergency: {emergency}")
         blocks.append("\n".join(lines))
     return _pack_messages(head, blocks, SQUAD_FOOTNOTE)
+
+
+def _mandate_mark(row: Row) -> str:
+    """Tick, cross, or a question mark when the Thrive export had no mandate column."""
+    if row.th is not None and not mandate_known(row.th):
+        return "❓"
+    return "✅" if row.th is not None and row.th.mandate else "❌"
 
 
 def _not_paying(row: Row) -> bool:
@@ -1155,7 +1228,7 @@ def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optio
         for source, row in members:
             name = row.fa_name or row.thrive_name
             lines.append(f"{name} ({label})\n   {_fa_mark(source)}  Thrive {mark(row.th is not None)}  "
-                         f"Active mandate {mark(bool(row.th and row.th.mandate))}")
+                         f"Active mandate {_mandate_mark(row)}")
             total += 1
         if len(lines) == 1:
             lines.append("Everyone in this team is paying through Thrive.")
