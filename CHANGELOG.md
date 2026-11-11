@@ -4,11 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-11
+
 ### Added
 - Client-side web app (`web/`) running the reconciliation entirely in the visitor's browser with TypeScript, Vite, ExcelJS and `fflate`:
   - Privacy and security baseline (#13, #14): strict Content Security Policy (`connect-src 'none'`, `form-action 'none'`), no third-party CDNs or trackers, and `localStorage` restricted to user settings only (never player data)
   - Full port of file loading, column checks and the reconciliation engine (#15, #16), verified by a shared cross-engine parity test suite (`tests/parity/expected_parity.json`, `tests/test_parity.py`, `web/tests/parity.test.ts`) and a local real-export comparison script (`scripts/compare_real_exports.py`) (#17)
   - Responsive web interface (#18, #19, #20, #21, #22, #23, #24): Step 1 to 3 file pickers and drag-and-drop with Web Worker progress, Results views, Team sheets, Not paying, Missing consents, Team mappings with JSON settings export and import, Copy for WhatsApp, styled Excel and `.zip` exports (with printable Matchday sheets), built-in help and automated WCAG 2.1 AA accessibility checks (`axe-core`)
+  - First-class mobile phone and Pixel 10 Pro UX: auto-collapsing Step 1–3 summary bar after reconciling on narrow screens, compact mobile Results view dropdown, sticky first table column for horizontal scrolling, native mobile "Share to app..." (`navigator.share`) in WhatsApp modals, 42px+ touch targets, 16px mobile inputs, swipeable tab bar and bottom-sheet modals
   - GitHub Pages deployment workflow (`.github/workflows/deploy-web.yml`) and downloadable offline `.zip` bundle (`PlayerReconcile-web-offline.zip`) (#25)
 
 ## [1.2.0] - 2026-11-11
