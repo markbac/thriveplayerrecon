@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-11-12
+
+### Added
+- Made FA Club Portal (`https://clubs.thefa.com/`) and Thrive (`https://app.thrive4.com/`) URLs in the Help dialog clickable hyperlinks in both the web app and desktop app
+
 ## [1.5.4] - 2026-11-12
 
 ### Added
