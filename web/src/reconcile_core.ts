@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.3.2';
+export const VERSION = '1.4.0';
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
 export const NO_FA = 'No FA needed';
@@ -2000,6 +2000,13 @@ export function staff_phones(result: Result, label: string, kind = 'manager'): s
     .map((p) => p.phone.replace(/[^\d+]/g, ''))
     .filter(Boolean);
   return numbers.join(', ');
+}
+
+export function team_choice_label(result: Result, label: string): string {
+  const managers = (result.staff[label] || [])
+    .filter((p) => p.kind === 'manager' && Boolean(p.name))
+    .map((p) => p.name);
+  return managers.length > 0 ? `${label} (${managers.join(', ')})` : label;
 }
 
 // --------------------------------------------------------------------------- WhatsApp text

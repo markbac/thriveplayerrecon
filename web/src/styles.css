@@ -1374,7 +1374,7 @@ tr.selected-mapping-row {
     gap: 6px;
   }
 
-  .team-actions-row button:last-child {
+  .team-actions-row button:last-child:nth-child(odd) {
     grid-column: 1 / -1;
   }
 
