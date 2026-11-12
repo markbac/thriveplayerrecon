@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-12
+
+### Changed
+- Clarified status labels in the not-paying WhatsApp message (`Registered with FA`, `Signed up in Thrive (membership)`, `Active Direct Debit mandate`) and removed the trailing disclaimer line
+
 ## [1.5.0] - 2026-11-12
 
 ### Added
