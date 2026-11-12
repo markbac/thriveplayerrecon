@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-12
+
+### Added
+- Team selector dropdowns now show the team manager's name in brackets after the team name when known from the managers file, for example `U12 Black (Alex Example)` (`team_choice_label`)
+- Per-team "Copy payment for WhatsApp..." button on the Team sheets tab (plus a "Not paying" tab inside the team "Copy for WhatsApp..." dialog), listing players in that team who are missing from Thrive or have no active direct debit mandate
+
 ## [1.3.2] - 2026-11-11
 
 ### Fixed

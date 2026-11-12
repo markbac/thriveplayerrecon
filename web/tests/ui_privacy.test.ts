@@ -48,7 +48,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const app = new WebApp(root, storage);
 
     // Initially shows "Not reconciled yet" placeholder and version
-    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.3.2');
+    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.4.0');
     expect((root.querySelector('#placeholder-results') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#run-state-label')?.textContent).toBe('Not run yet');
 
@@ -249,6 +249,50 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     expect(shareBtn.textContent).toBe('Share to app...');
     shareBtn.click();
     expect(shareSpy).toHaveBeenCalledTimes(1);
+    app.closeModal();
+
+    // Verify (a) manager name in brackets on team selector box and (b) per-team Copy payment for WhatsApp
+    const staffCsv = new TextEncoder().encode(
+      'Name,Role,Team(s),Phone\nAlex Example,Manager,U12 Black,07700900010\nPat Sample,Assistant manager,U11 White,07700900011\n'
+    );
+    app.setChosenFilesForTest(
+      { name: 'fa.xlsx', buffer: faBytes.buffer as ArrayBuffer },
+      { name: 'thrive.xlsx', buffer: thBytes.buffer as ArrayBuffer },
+      { name: 'managers.csv', buffer: staffCsv.buffer as ArrayBuffer }
+    );
+    await app.runReconcile();
+
+    app.switchTab('teams');
+    const selectTeam = root.querySelector('#select-team') as HTMLSelectElement;
+    const optionTexts = Array.from(selectTeam.options).map((o) => o.textContent);
+    expect(optionTexts).toContain('U12 Black (Alex Example)');
+    expect(optionTexts).toContain('U11 White');
+
+    // Select U12 Black (where Dan Dee is FA only / missing from Thrive) and open Copy payment for WhatsApp
+    selectTeam.value = 'U12 Black';
+    selectTeam.dispatchEvent(new Event('change'));
+    (root.querySelector('#btn-team-whatsapp-payment') as HTMLButtonElement).click();
+    const confirmBtns2 = Array.from(root.querySelectorAll('#modal-footer button'));
+    (confirmBtns2.find((b) => b.textContent === 'Continue') as HTMLButtonElement).click();
+
+    const waTextarea = root.querySelector('.whatsapp-textarea') as HTMLTextAreaElement;
+    expect(waTextarea.value).toContain('*Not paying through Thrive*: U12 Black');
+    expect(waTextarea.value).toContain('Dan Dee (U12 Black)');
+    expect(waTextarea.value).toContain('Thrive ❌  Active mandate ❌');
+    app.closeModal();
+
+    // Select U11 White (where Ben Bold is in Thrive with no active direct debit) and open Copy payment for WhatsApp
+    selectTeam.value = 'U11 White';
+    selectTeam.dispatchEvent(new Event('change'));
+    (root.querySelector('#btn-team-whatsapp-payment') as HTMLButtonElement).click();
+    const confirmBtns3 = Array.from(root.querySelectorAll('#modal-footer button'));
+    (confirmBtns3.find((b) => b.textContent === 'Continue') as HTMLButtonElement).click();
+
+    const waTextarea2 = root.querySelector('.whatsapp-textarea') as HTMLTextAreaElement;
+    expect(waTextarea2.value).toContain('*Not paying through Thrive*: U11 White');
+    expect(waTextarea2.value).toContain('Ben Bold (U11 White)');
+    expect(waTextarea2.value).toContain('Thrive ✅  Active mandate ❌');
+    app.closeModal();
 
     document.body.removeChild(root);
     Object.defineProperty(window, 'innerWidth', {

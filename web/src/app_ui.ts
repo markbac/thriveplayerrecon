@@ -330,6 +330,7 @@ export class WebApp {
             <button type="button" id="btn-copy-mgr-phone" class="export-action-btn" disabled>Copy manager phone</button>
             <button type="button" id="btn-copy-asst-phone" class="export-action-btn" disabled>Copy assistant phone</button>
             <button type="button" id="btn-team-whatsapp" class="export-action-btn" disabled>Copy for WhatsApp...</button>
+            <button type="button" id="btn-team-whatsapp-payment" class="export-action-btn" disabled>Copy payment for WhatsApp...</button>
             <button type="button" id="btn-export-one-team" class="export-action-btn" disabled>Export this team...</button>
             <button type="button" id="btn-team-export-all" class="export-action-btn" disabled>Export team files for managers (.zip)...</button>
           </div>
@@ -632,6 +633,7 @@ export class WebApp {
     this.root.querySelector('#btn-copy-mgr-phone')?.addEventListener('click', () => this.copyStaffPhone('manager'));
     this.root.querySelector('#btn-copy-asst-phone')?.addEventListener('click', () => this.copyStaffPhone('assistant'));
     this.root.querySelector('#btn-team-whatsapp')?.addEventListener('click', () => this.openTeamWhatsAppModal());
+    this.root.querySelector('#btn-team-whatsapp-payment')?.addEventListener('click', () => this.openTeamPaymentWhatsAppModal());
     this.root.querySelector('#btn-export-one-team')?.addEventListener('click', () => {
       void this.exportCurrentTeam();
     });
@@ -1033,7 +1035,7 @@ export class WebApp {
     for (const label of labels) {
       const opt = document.createElement('option');
       opt.value = label;
-      opt.textContent = label;
+      opt.textContent = rc.team_choice_label(res, label);
       selectTeam.appendChild(opt);
     }
     if (labels.length > 0) {
@@ -1853,6 +1855,8 @@ export class WebApp {
         squadMsgs.length > 1 ? `Squad ${i + 1}` : 'Squad',
         m,
       ]);
+      const npMsgs = rc.whatsapp_not_paying(this.result, label);
+      parts.push(...npMsgs.map((m, i): [string, string] => [npMsgs.length > 1 ? `Not paying ${i + 1}` : 'Not paying', m]));
       if (medical) {
         const medMsgs = rc.whatsapp_medical(this.result, label);
         parts.push(
@@ -1869,6 +1873,24 @@ export class WebApp {
         'Pick a tab, click Copy to clipboard, then paste into WhatsApp. You can edit the text first. Send the squad message and the medical message separately, and only to the people who need them.',
         parts,
         !medical ? 'Medical message left out (Include medical details is unticked).' : ''
+      );
+    });
+  }
+
+  private openTeamPaymentWhatsAppModal(): void {
+    if (!this.result || !this.settings.team) return;
+    const label = this.settings.team;
+    this.openConfirmModal('Data protection warning', WHATSAPP_WARNING, () => {
+      if (!this.result) return;
+      const npMsgs = rc.whatsapp_not_paying(this.result, label);
+      const parts: Array<[string, string]> = npMsgs.map((m, i) => [
+        npMsgs.length > 1 ? `Not paying ${i + 1}` : 'Not paying',
+        m,
+      ]);
+      this.showWhatsAppPartsModal(
+        `Copy payment for WhatsApp: ${label}`,
+        'Players in this team who are missing from Thrive or have no active direct debit mandate. Click Copy to clipboard (or Share to app) to send to the team manager.',
+        parts
       );
     });
   }
@@ -1898,7 +1920,7 @@ export class WebApp {
       for (const t of [allLabel, ...teams]) {
         const opt = document.createElement('option');
         opt.value = t;
-        opt.textContent = t;
+        opt.textContent = t === allLabel ? allLabel : rc.team_choice_label(this.result, t);
         select.appendChild(opt);
       }
       pickRow.append(lbl, select);

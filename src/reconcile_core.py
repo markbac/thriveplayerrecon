@@ -1174,6 +1174,12 @@ def staff_phones(result: Result, label: str, kind: str = "manager") -> str:
     return ", ".join(n for n in numbers if n)
 
 
+def team_choice_label(result: Result, label: str) -> str:
+    """Team label for dropdown selectors, with manager name(s) in brackets when known: 'U12 Black (Alex Example)'."""
+    managers = [p.name for p in result.staff.get(label, []) if p.kind == "manager" and p.name]
+    return f"{label} ({', '.join(managers)})" if managers else label
+
+
 # --------------------------------------------------------------------------- WhatsApp text
 
 WHATSAPP_LIMIT = 3500  # characters per message part, so long teams are split into readable parts

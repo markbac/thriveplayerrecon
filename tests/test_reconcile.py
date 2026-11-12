@@ -65,3 +65,13 @@ def test_team_sheet_compact_view(result):
 def test_suggest_mapping():
     found = rc.suggest_mapping(["U07 Eagles", "U04", "U7-8 Training", "Mystery"], [rc._CLUB + "U7 Eagles"])
     assert found == {"U07 Eagles": rc._CLUB + "U7 Eagles", "U04": rc.IGNORE, "U7-8 Training": rc.IGNORE}
+
+
+def test_team_choice_label_with_manager(result):
+    staff = [
+        rc.Staff("Alex Example", "Manager", ["U12 Black"]),
+        rc.Staff("Pat Sample", "Assistant manager", ["U11 White"]),
+    ]
+    rc.attach_staff(result, staff, rc.DEFAULT_TEAM_MAP)
+    assert rc.team_choice_label(result, "U12 Black") == "U12 Black (Alex Example)"
+    assert rc.team_choice_label(result, "U11 White") == "U11 White"

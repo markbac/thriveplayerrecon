@@ -1192,8 +1192,14 @@ class App(tk.Tk):
             ("Not checked, because the Thrive export has no answers for: " + ", ".join(unchecked)
              + ". Add them in Thrive (Contacts > Manage table columns) and export again.") if unchecked else "")
         labels = rc.team_labels(self.result)
-        self.team_box["values"] = labels
-        if self.team_var.get() not in labels:
+        self.team_choices = {rc.team_choice_label(self.result, l): l for l in labels}
+        self.team_box["values"] = list(self.team_choices)
+        cur = self.team_choices.get(self.team_var.get(), self.team_var.get())
+        if cur not in labels:
+            last = self.cfg.get("team", "")
+            cur = last if last in labels else labels[0] if labels else ""
+        self.team_var.set(rc.team_choice_label(self.result, cur) if cur else "")
+        if False and self.team_var.get() not in labels:
             last = self.cfg.get("team", "")
             self.team_var.set(last if last in labels else labels[0] if labels else "")
         self._fill_team_tab()
@@ -1339,9 +1345,10 @@ class App(tk.Tk):
         return "break"
 
     def _fill_team_tab(self) -> None:
-        label = self.team_var.get()
+        label = getattr(self, "team_choices", {}).get(self.team_var.get(), self.team_var.get())
         labels = list(self.team_box["values"])
-        self.team_pos_var.set(f"{labels.index(label) + 1} of {len(labels)}" if label in labels else "")
+        choice_label = rc.team_choice_label(self.result, label) if self.result else label
+        self.team_pos_var.set(f"{labels.index(choice_label) + 1} of {len(labels)}" if choice_label in labels else "")
         if not self.result or label not in self.result.teams:
             self.team_summary_var.set("")
             return
@@ -1387,7 +1394,7 @@ class App(tk.Tk):
 
     def copy_phone(self, kind: str) -> None:
         """Put a team's manager or assistant phone number on the clipboard."""
-        label = self.team_var.get()
+        label = getattr(self, "team_choices", {}).get(self.team_var.get(), self.team_var.get())
         if not self._need_result() or not label:
             return
         phone = rc.staff_phones(self.result, label, kind)
@@ -1401,7 +1408,7 @@ class App(tk.Tk):
 
     def copy_whatsapp(self) -> None:
         """Show WhatsApp-ready text for the chosen team, to copy and paste."""
-        label = self.team_var.get()
+        label = getattr(self, "team_choices", {}).get(self.team_var.get(), self.team_var.get())
         if not self._need_result() or not label:
             return
         if not messagebox.askokcancel("Data protection warning", WHATSAPP_WARNING, icon="warning"):
@@ -1409,6 +1416,8 @@ class App(tk.Tk):
         medical = self.medical_var.get()
         parts = [(f"Squad {i}" if len(msgs) > 1 else "Squad", m)
                  for msgs in [rc.whatsapp_squad(self.result, label)] for i, m in enumerate(msgs, 1)]
+        np_msgs = rc.whatsapp_not_paying(self.result, label)
+        parts += [(f"Not paying {i}" if len(np_msgs) > 1 else "Not paying", m) for i, m in enumerate(np_msgs, 1)]
         if medical:
             msgs = rc.whatsapp_medical(self.result, label)
             parts += [(f"Medical {i}" if len(msgs) > 1 else "Medical", m) for i, m in enumerate(msgs, 1)]
@@ -1539,7 +1548,7 @@ class App(tk.Tk):
             messagebox.showinfo("Saved", f"Saved the full workbook:\n{path}")
 
     def export_team(self) -> None:
-        label = self.team_var.get()
+        label = getattr(self, "team_choices", {}).get(self.team_var.get(), self.team_var.get())
         if not self._need_result() or not label or not self._confirm_export(self.medical_var.get()):
             return
         safe = "".join(ch for ch in label if ch.isalnum() or ch in " -").strip().replace(" ", "_")
