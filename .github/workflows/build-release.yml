@@ -1,7 +1,7 @@
 name: Build and release
 
-# Builds the Windows exe on every change to the app, and publishes a GitHub release when a
-# version tag (for example v1.0.0) is pushed. See docs/development.md for the release steps.
+# Builds the Windows exe and static web app zip on every change to the app, and publishes a GitHub
+# release when a version tag (for example v1.0.0) is pushed. See docs/development.md for the release steps.
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
     tags: ["v*"]
     paths:
       - "src/**"
+      - "web/**"
       - "scripts/**"
       - "tests/**"
       - "requirements*.txt"
@@ -16,6 +17,7 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - "web/**"
       - "scripts/**"
       - "tests/**"
       - "requirements*.txt"
@@ -31,16 +33,16 @@ permissions:
 
 jobs:
   build:
-    name: Build Windows exe
+    name: Build Windows exe and web zip
     runs-on: windows-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -91,20 +93,40 @@ jobs:
           $p = Start-Process -FilePath "dist/PlayerReconcile-$env:VERSION.exe" -ArgumentList "--self-test" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Self test failed with exit code $($p.ExitCode)" }
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build static website files zip
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          Push-Location web
+          npm ci
+          npm test
+          npm run build
+          Pop-Location
+          Copy-Item "web/dist/PlayerReconcile-web-offline.zip" "dist/PlayerReconcile-$env:VERSION-web.zip" -Force
+
       - name: Write checksum
         shell: pwsh
         run: |
-          Get-ChildItem dist/*.exe | ForEach-Object {
+          Get-ChildItem dist/*.exe, dist/*.zip | ForEach-Object {
             $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
             "$hash  $($_.Name)"
           } | Out-File -Encoding ascii dist/SHA256SUMS.txt
 
       - name: Upload build
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: PlayerReconcile-${{ steps.ver.outputs.version }}
           path: |
             dist/*.exe
+            dist/*.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
@@ -118,10 +140,10 @@ jobs:
       contents: write
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Download build
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: PlayerReconcile-${{ needs.build.outputs.version }}
           path: release
@@ -140,7 +162,10 @@ jobs:
           fi
           {
             echo ""
-            echo "SHA-256 checksums are in SHA256SUMS.txt. The exe is not code signed, so Windows may show a SmartScreen warning the first time. See the README."
+            echo "### Downloads"
+            echo "- \`PlayerReconcile-$VERSION.exe\`: Standalone Windows desktop application."
+            echo "- \`PlayerReconcile-$VERSION-web.zip\`: Static website files ready to upload to any web server or open locally."
+            echo "- \`SHA256SUMS.txt\`: SHA-256 checksums. The exe is not code signed, so Windows may show a SmartScreen warning the first time. See the README."
           } >> notes.md
 
       - name: Create release
@@ -151,10 +176,10 @@ jobs:
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             # a release was already made by hand from the tag: add the files and fill in the title and notes
-            gh release upload "$TAG" release/*.exe release/SHA256SUMS.txt --clobber
+            gh release upload "$TAG" release/*.exe release/*.zip release/SHA256SUMS.txt --clobber
             gh release edit "$TAG" --title "Player Reconcile $VERSION" --notes-file notes.md
           else
-            gh release create "$TAG" release/*.exe release/SHA256SUMS.txt \
+            gh release create "$TAG" release/*.exe release/*.zip release/SHA256SUMS.txt \
               --title "Player Reconcile $VERSION" \
               --notes-file notes.md \
               --verify-tag
