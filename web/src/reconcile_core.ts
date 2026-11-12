@@ -5,8 +5,8 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.5.3';
-export const BUILD_DATETIME = '12/11/2026 10:09';
+export const VERSION = '1.5.4';
+export const BUILD_DATETIME = '12/11/2026 10:48';
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
 export const NO_FA = 'No FA needed';
@@ -2185,8 +2185,18 @@ export function whatsapp_not_paying(
     }
     blocks.push(lines.join('\n'));
   }
+  const managers = team
+    ? (result.staff[team] || [])
+        .filter((p) => p.kind === 'manager' && p.name.trim())
+        .map((p) => p.name.trim().split(/\s+/)[0])
+    : [];
+  const greeting = managers.length > 0 ? `Hi ${managers.join(', ')},` : 'Hi,';
+  const teamPart = team ? `*${team}* ` : '';
+  const intro =
+    `${greeting} the following ${teamPart}player(s) are currently showing as not paying fees in Thrive. ` +
+    'Please pass the links and instructions below on to their parents to get this set up:';
   const title = '*Currently not paying fees*' + (team ? `: ${team}` : '');
-  const head = [title, `${total} player(s)`, `Updated ${formatDate(todayDate)}`];
+  const head = [intro, '', title, `${total} player(s)`, `Updated ${formatDate(todayDate)}`];
   return _pack_messages(head, blocks, NOT_PAYING_FOOTNOTE, limit);
 }
 

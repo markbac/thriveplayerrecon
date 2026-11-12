@@ -1318,8 +1318,13 @@ def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optio
         if len(lines) == 1:
             lines.append("Everyone in this team is paying through Thrive.")
         blocks.append("\n".join(lines))
+    managers = [p.name.split()[0] for p in result.staff.get(team, []) if p.kind == "manager" and p.name.strip()] if team else []
+    greeting = f"Hi {', '.join(managers)}," if managers else "Hi,"
+    team_part = f"*{team}* " if team else ""
+    intro = (f"{greeting} the following {team_part}player(s) are currently showing as not paying fees in Thrive. "
+             "Please pass the links and instructions below on to their parents to get this set up:")
     title = "*Currently not paying fees*" + (f": {team}" if team else "")
-    head = [title, f"{total} player(s)", f"Updated {today:%d/%m/%Y}"]
+    head = [intro, "", title, f"{total} player(s)", f"Updated {today:%d/%m/%Y}"]
     return _pack_messages(head, blocks, NOT_PAYING_FOOTNOTE)
 
 

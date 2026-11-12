@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-11-12
+
+### Added
+- Added manager greeting and introductory note at the start of the payment WhatsApp message (`Hi <Manager>, the following *<Team>* player(s) are currently showing as not paying fees in Thrive. Please pass the links and instructions below on to their parents to get this set up:`)
+
 ## [1.5.3] - 2026-11-12
 
 ### Changed
