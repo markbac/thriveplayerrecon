@@ -1313,7 +1313,7 @@ def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optio
         if len(lines) == 1:
             lines.append("Everyone in this team is paying through Thrive.")
         blocks.append("\n".join(lines))
-    title = "*Not paying through Thrive*" + (f": {team}" if team else "")
+    title = "*Currently not paying fees*" + (f": {team}" if team else "")
     head = [title, f"{total} player(s)", f"Updated {today:%d/%m/%Y}"]
     return _pack_messages(head, blocks, NOT_PAYING_FOOTNOTE)
 

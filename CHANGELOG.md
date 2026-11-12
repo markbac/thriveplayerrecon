@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-12
+
+### Changed
+- Added creation date/time (`BUILD_DATETIME`) to the desktop app and web app header, status bar and About dialog
+- Changed the heading of the payment WhatsApp message from `*Not paying through Thrive*` to `*Currently not paying fees*`
+
 ## [1.5.1] - 2026-11-12
 
 ### Changed
