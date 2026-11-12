@@ -5,8 +5,8 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.5.2';
-export const BUILD_DATETIME = '12/11/2026 09:42';
+export const VERSION = '1.5.3';
+export const BUILD_DATETIME = '12/11/2026 10:09';
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
 export const NO_FA = 'No FA needed';
@@ -2163,15 +2163,20 @@ export function whatsapp_not_paying(
   const allGroups = not_paying_by_team(result);
   const groups: Record<string, Array<[string, Row]>> =
     team !== null ? { [team]: allGroups[team] || [] } : allGroups;
-  const mark = (ok: boolean) => (ok ? '✅' : '❌');
   const blocks: string[] = [];
   let total = 0;
   for (const [label, members] of Object.entries(groups)) {
     const lines = [`*${label}*`];
-    for (const [source, row] of members) {
+    for (const [, row] of members) {
       const name = row.fa_name || row.thrive_name;
       lines.push(
-        `${name} (${label})\n   ${source === NO_FA ? 'FA not needed' : `Registered with FA ${mark(source === 'Both' || source === 'FA only')}`}  Signed up in Thrive (membership) ${mark(row.th !== null)}  Active Direct Debit mandate ${_mandate_mark(row)}`
+        `*${name}* (${label})\n` +
+          [
+            ...(row.th === null ? ['   ❌ *NOT SIGNED UP IN THRIVE (NO MEMBERSHIP)*'] : []),
+            ...(row.th === null || !row.th.mandate
+              ? ['   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*']
+              : []),
+          ].join('\n')
       );
       total += 1;
     }

@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-11-12
+
+### Changed
+- Payment WhatsApp message now highlights only what is missing for each player in bold (`❌ *NOT SIGNED UP IN THRIVE (NO MEMBERSHIP)*` and/or `❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*`)
+
 ## [1.5.2] - 2026-11-12
 
 ### Changed
