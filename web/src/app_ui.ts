@@ -2343,7 +2343,24 @@ export class WebApp {
       const h3 = document.createElement('h3');
       h3.textContent = title;
       const pre = document.createElement('pre');
-      pre.textContent = content;
+      const urlRegex = /(https:\/\/[^\s)]+)/g;
+      let lastIdx = 0;
+      let match: RegExpExecArray | null;
+      while ((match = urlRegex.exec(content)) !== null) {
+        if (match.index > lastIdx) {
+          pre.appendChild(document.createTextNode(content.slice(lastIdx, match.index)));
+        }
+        const link = document.createElement('a');
+        link.href = match[1];
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = match[1];
+        pre.appendChild(link);
+        lastIdx = match.index + match[1].length;
+      }
+      if (lastIdx < content.length) {
+        pre.appendChild(document.createTextNode(content.slice(lastIdx)));
+      }
       sec.append(h3, pre);
       body.appendChild(sec);
     }

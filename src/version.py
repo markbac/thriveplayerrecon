@@ -1,5 +1,5 @@
 """Single place for the app name, version and creation timestamp. Bump __version__ and BUILD_DATETIME per release."""
 APP_NAME = "PlayerReconcile"
 APP_TITLE = "Player Reconciliation"
-__version__ = "1.5.4"
-BUILD_DATETIME = "12/11/2026 10:48"
+__version__ = "1.5.5"
+BUILD_DATETIME = "12/11/2026 12:05"

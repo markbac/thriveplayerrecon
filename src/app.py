@@ -98,7 +98,7 @@ FA player report
 minutes to appear.
 
 Thrive data export
-1.  Log in to Thrive and go to Contacts.
+1.  Log in to Thrive (https://app.thrive4.com/) and go to Contacts.
 2.  Select the products you are interested in.
 3.  Open Manage table columns and make sure these are all added:
 {chr(10).join('      - ' + item for item in rc.THRIVE_ALL_ITEMS)}
@@ -911,11 +911,31 @@ class App(tk.Tk):
         text.pack(fill="both", expand=True)
         text.tag_configure("h", font=("Segoe UI", 13, "bold") if FONT else None, spacing1=14, spacing3=6,
                            foreground="#1F4E79")
+        import webbrowser
         for key, title, body in HELP:
+
+
+
             text.mark_set(key, "end-1c")
             text.mark_gravity(key, "left")
             text.insert("end", title + "\n", "h")
-            text.insert("end", body + "\n")
+            pos = 0
+            for m in re.finditer(r"https://[^\s)]+", body):
+                if m.start() > pos:
+                    text.insert("end", body[pos:m.start()])
+                url = m.group(0)
+                tag = f"url_{url}"
+                text.tag_configure(tag, foreground="#0563C1", underline=True)
+                text.tag_bind(tag, "<Button-1>", lambda _e, u=url: webbrowser.open(u))
+                text.tag_bind(tag, "<Enter>", lambda _e: text.config(cursor="hand2"))
+                text.tag_bind(tag, "<Leave>", lambda _e: text.config(cursor=""))
+                text.insert("end", url, (tag,))
+                pos = m.end()
+            text.insert("end", body[pos:] + "\n")
+
+
+
+
         text.insert("end", f"\n{APP_TITLE} version {__version__} (created {BUILD_DATETIME})\n")
         text.configure(state="disabled")
         text.see(section)

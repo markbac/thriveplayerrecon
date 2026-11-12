@@ -48,7 +48,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const app = new WebApp(root, storage);
 
     // Initially shows "Not reconciled yet" placeholder and version
-    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.5.4');
+    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.5.5');
     expect(root.querySelector('#build-date-badge')?.textContent).toContain('Created ');
     expect((root.querySelector('#placeholder-results') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#run-state-label')?.textContent).toBe('Not run yet');
@@ -110,6 +110,15 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     expect((root.querySelector('#modal-backdrop') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#modal-body')?.textContent).toContain(
       'Manage table columns'
+    );
+    const helpLinks = Array.from(root.querySelectorAll('#modal-body a')).map((a) =>
+      (a as HTMLAnchorElement).getAttribute('href')
+    );
+    expect(helpLinks).toContain('https://clubs.thefa.com/');
+    expect(helpLinks).toContain('https://app.thrive4.com/');
+    expect(true).toBe(true
+
+
     );
     app.closeModal();
 

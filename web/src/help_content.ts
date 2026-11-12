@@ -119,7 +119,7 @@ Nothing is uploaded and nothing is changed in Thrive or the FA system. The tool 
 3. Wait for the export to be created, then go to My club > Documents and download it. It can take a few minutes to appear.
 
 Thrive data export
-1. Log in to Thrive and go to Contacts.
+1. Log in to Thrive (https://app.thrive4.com/) and go to Contacts.
 2. Select the products you are interested in.
 3. Open Manage table columns and make sure these are all added:
 ${rc.THRIVE_ALL_ITEMS.map((item) => '      - ' + item).join('\n')}
