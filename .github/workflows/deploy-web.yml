@@ -1,7 +1,7 @@
 name: Deploy web app
 
 # Runs the shared Python + TypeScript parity test suite, builds the static client-side web app,
-# packages an offline zip bundle, and deploys to GitHub Pages when merged to main (#25).
+# packages an offline zip bundle, and deploys to GitHub Pages and Hostinger when merged to main (#25).
 
 on:
   push:
@@ -93,6 +93,31 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
+
+      - name: Deploy to Hostinger via FTP
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          if [ -z "$FTP_SERVER" ] || [ -z "$FTP_USERNAME" ] || [ -z "$FTP_PASSWORD" ]; then
+            echo "Hostinger FTP secrets not configured; skipping FTP deploy."
+            exit 0
+          fi
+          sudo apt-get update -y && sudo apt-get install -y lftp
+          SERVER=$(echo "$FTP_SERVER" | sed -E 's#^[a-zA-Z]+://##; s#/+$##; s/^[[:space:]]+//; s/[[:space:]]+$//')
+          USER=$(echo "$FTP_USERNAME" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+          lftp -e "
+            set ssl:verify-certificate no;
+            set ftp:ssl-allow yes;
+            set ftp:passive-mode on;
+            set net:timeout 20;
+            set net:max-retries 3;
+            set net:reconnect-interval-base 5;
+            mirror --reverse --verbose --overwrite web/dist/ ./;
+            bye
+          " -u "$USER","$FTP_PASSWORD" "$SERVER"
 
   deploy-pages:
     name: Publish to GitHub Pages
