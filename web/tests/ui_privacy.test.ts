@@ -48,7 +48,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const app = new WebApp(root, storage);
 
     // Initially shows "Not reconciled yet" placeholder and version
-    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.4.0');
+    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.5.0');
     expect((root.querySelector('#placeholder-results') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#run-state-label')?.textContent).toBe('Not run yet');
 
@@ -292,6 +292,11 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     expect(waTextarea2.value).toContain('*Not paying through Thrive*: U11 White');
     expect(waTextarea2.value).toContain('Ben Bold (U11 White)');
     expect(waTextarea2.value).toContain('Thrive ✅  Active mandate ❌');
+    expect(waTextarea2.value).toContain('https://member.thrive4.com/');
+    expect(waTextarea2.value).toContain(
+      'https://book.thrive4.com/#/app/joinin/organisation/shop/a8b9edae-1af1-4df8-afe5-73e73f066998'
+    );
+    expect(waTextarea2.value).toContain('Open Payment Settings');
     app.closeModal();
 
     document.body.removeChild(root);

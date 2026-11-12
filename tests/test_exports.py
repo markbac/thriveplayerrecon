@@ -73,6 +73,9 @@ def test_whatsapp_not_paying_text(result):
     assert "FA not needed" in tia and "Active mandate ❌" in tia
     one = rc.whatsapp_not_paying(result, "U11 White")[0]
     assert "Ben Bold" in one and "Dan Dee" not in one
+    assert "https://member.thrive4.com/" in one
+    assert "https://book.thrive4.com/#/app/joinin/organisation/shop/a8b9edae-1af1-4df8-afe5-73e73f066998" in one
+    assert "Open Payment Settings" in one
 
 
 def test_long_messages_are_split(result, monkeypatch):

@@ -27,7 +27,7 @@ function collectFiles(dir, prefix = '') {
 }
 
 if (fs.existsSync(distDir)) {
-  const files = collectFiles(distDir, 'PlayerReconcile-web');
+  const files = collectFiles(distDir, '');
   const zipped = zipSync(files);
   const outPath = path.join(distDir, outZipName);
   fs.writeFileSync(outPath, zipped);

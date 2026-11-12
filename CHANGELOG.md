@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-12
+
+### Added
+- Added Thrive4 shop membership link, MemberHub portal link (`https://member.thrive4.com/`) and step-by-step Direct Debit mandate instructions to the bottom of the not-paying WhatsApp messages for managers (`whatsapp_not_paying`)
+- GitHub Releases (`build-release.yml`) now also build and attach `PlayerReconcile-<version>-web.zip` containing the static website files ready to upload directly to any web server
+
 ## [1.4.0] - 2026-11-12
 
 ### Added
