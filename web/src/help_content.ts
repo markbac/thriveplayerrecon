@@ -165,6 +165,10 @@ Untick "Include medical details" to leave medical information out (including the
 
 To show manager names on team sheets and messages, choose an optional Managers file in Step 1. Click Managers template to download an example layout: either one row per person (Name, Role, Team(s)) or one row per team (Team, Manager, Assistant manager). Teams are matched by name, for example U12 Black.
 
+If the managers file has a phone number for the team manager (for example 07700 900010), the WhatsApp window also shows a "Send to <Manager> on WhatsApp..." button. It opens WhatsApp (the app on your phone, or WhatsApp Web on a PC) straight into that manager's chat with the message already filled in, including any edits you made. Nothing is sent until you press send in WhatsApp. UK numbers starting 0 are treated as +44.
+
+The managers list rarely changes, so you can tick "Remember managers list on this device" in Step 1. A copy of the managers file is then kept in this browser and chosen for you next time, so each week you only pick the FA and Thrive files. Untick it to delete the copy. Do not use it on a shared computer.
+
 Send messages only to the people who need them, never to a big group, and ask them to delete them afterwards.`,
   ],
   [
@@ -178,7 +182,7 @@ If the Thrive export has no mandate column (Active pre-authorisation), a red not
 
 Use Search and the column headings to narrow and sort the list. Columns that are empty for everyone are hidden.
 
-Copy for WhatsApp makes a message listing each player's name and team, whether they are in the FA system and in Thrive, and whether they have an active mandate. Choose All teams, or one team to send to that team's manager.`,
+Copy for WhatsApp makes a message listing each player's name and team, whether they are in the FA system and in Thrive, and whether they have an active mandate. Choose All teams, or one team to send to that team's manager. The team list shows how many players in each team are not paying, and once you pick a team with a manager phone number you can send it straight to their WhatsApp chat.`,
   ],
   [
     'consents',

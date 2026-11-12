@@ -155,9 +155,9 @@ def app_factory(tmp_path, monkeypatch):
             pass
 
 
-def reconcile_in_app(a, fa, thrive, timeout=30):
+def reconcile_in_app(a, fa, thrive, timeout=30, staff=""):
     """Run Reconcile through the GUI (background thread and all) and wait for it to finish."""
-    a.staff_var.set("")
+    a.staff_var.set(staff)
     a.fa_var.set(fa)
     a.thrive_var.set(thrive)
     a.run()

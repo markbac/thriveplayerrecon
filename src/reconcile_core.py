@@ -20,6 +20,7 @@ import difflib
 import os
 import re
 import unicodedata
+from urllib.parse import quote
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -1178,6 +1179,67 @@ def team_choice_label(result: Result, label: str) -> str:
     """Team label for dropdown selectors, with manager name(s) in brackets when known: 'U12 Black (Alex Example)'."""
     managers = [p.name for p in result.staff.get(label, []) if p.kind == "manager" and p.name]
     return f"{label} ({', '.join(managers)})" if managers else label
+
+
+DEFAULT_COUNTRY_CODE = "44"  # national numbers such as 07700 900010 are UK numbers
+
+
+def whatsapp_number(phone: str, country_code: str = DEFAULT_COUNTRY_CODE) -> Optional[str]:
+    """Digits-only international number for wa.me ('07700 900010' -> '447700900010'), or None."""
+    first = re.split(r"[,;/]|\bor\b", phone or "", flags=re.I)[0]
+    cleaned = re.sub(r"[^\d+]", "", first)
+    if cleaned.startswith("+"):
+        digits = re.sub(r"\D", "", cleaned[1:])
+    elif cleaned.startswith("00"):
+        digits = cleaned[2:]
+    elif cleaned.startswith("0"):
+        digits = country_code + cleaned[1:]
+    elif len(cleaned) == 10 and cleaned.startswith("7"):
+        digits = country_code + cleaned  # UK mobile stored by Excel without its leading 0
+    else:
+        digits = re.sub(r"\D", "", cleaned)
+    return digits if re.fullmatch(r"[1-9]\d{9,14}", digits) else None
+
+
+def whatsapp_link(phone: str, text: str) -> Optional[str]:
+    """https://wa.me/<number>?text=<message> that opens WhatsApp at that chat with the message filled in."""
+    number = whatsapp_number(phone)
+    if not number:
+        return None
+    text = (text or "").strip()
+    encoded = quote(text, safe="!*'()")  # same characters as JavaScript's encodeURIComponent
+    return f"https://wa.me/{number}?text={encoded}" if text else f"https://wa.me/{number}"
+
+
+def manager_contacts(result: Result, label: str) -> List[Tuple[str, str]]:
+    """(name, phone) for a team's managers who have a usable WhatsApp number."""
+    out, seen = [], set()
+    for p in result.staff.get(label, []):
+        number = whatsapp_number(p.phone) if p.kind == "manager" else None
+        if number and number not in seen:
+            seen.add(number)
+            out.append((p.name.strip() or "manager", p.phone))
+    return out
+
+
+def unpaid_count(result: Result, label: str) -> int:
+    """How many players in a team will not be paying through Thrive."""
+    return sum(1 for _source, row in result.teams.get(label, []) if _not_paying(row))
+
+
+def _unpaid_suffix(count: int) -> str:
+    return f"{count} not paying" if count else "✔ all paying"
+
+
+def team_choice_label_with_unpaid(result: Result, label: str) -> str:
+    """'U12 Black (Alex Example) — 2 not paying' or 'U10 Blue (Sam Green) — ✔ all paying'."""
+    return f"{team_choice_label(result, label)} — {_unpaid_suffix(unpaid_count(result, label))}"
+
+
+def not_paying_choice_label(result: Result, label: str, count: int) -> str:
+    """Label for the not paying picker, where the count comes from the grouped list (incl. 'No team')."""
+    base = team_choice_label(result, label) if label in result.teams else label
+    return f"{base} — {_unpaid_suffix(count)}"
 
 
 # --------------------------------------------------------------------------- WhatsApp text

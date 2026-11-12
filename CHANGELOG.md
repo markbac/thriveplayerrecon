@@ -4,6 +4,24 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-12
+
+### Added
+- **Send to <Manager> on WhatsApp...** button (web and desktop apps) in the WhatsApp windows (team Copy for WhatsApp, Copy payment for WhatsApp, and Not paying when one team is chosen). It opens WhatsApp or WhatsApp Web at the manager's chat (`wa.me`) with the message, including edits, already filled in. UK numbers such as `07700 900010` are converted to `447700900010`
+- Unpaid counts in the Team dropdowns (web and desktop apps) (Team sheets tab and the Not paying WhatsApp picker), for example `U12 Black (Alex Example) - 2 not paying` or `U10 Blue (Sam Green) - ✔ all paying`
+- Web app: opt-in **Remember managers list on this device** tickbox in Step 1, so only the FA and Thrive files need choosing each week. Unticking deletes the stored copy (the desktop app already remembers the managers file path)
+
+### Fixed
+- Web app: a failed export now shows a message instead of failing silently
+- Web app: Copy to clipboard reports when copying did not work, with a fallback for browsers that block the clipboard API
+- Web app: dialogs move keyboard focus into themselves, keep Tab inside, and return focus when closed
+- Web app: sortable column headings can be used with the keyboard (Enter or Space) and announce their sort order
+- Web app: a problem in the chosen files is reported once instead of the files being read a second time
+
+### Changed
+- Web app: Ctrl+R only runs Reconcile once both files are chosen and you are not typing, so the browser's reload works otherwise
+- Web app: the Excel library is loaded only when exporting, cutting the main download from about 1.1 MB to 120 KB
+
 ## [1.5.5] - 2026-11-12
 
 ### Added

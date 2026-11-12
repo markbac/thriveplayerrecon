@@ -7,6 +7,7 @@ import queue
 import re
 import sys
 import threading
+import webbrowser
 import tkinter as tk
 from datetime import date, datetime
 from tkinter import filedialog, messagebox, ttk
@@ -158,7 +159,14 @@ status) and a separate medical message. Each ends with a data protection reminde
 
 To show manager names on team sheets and messages, choose an optional Managers file in Step 1. Click \
 Managers template (or File, Save a managers file template) to see the layout: either one row per person (Name, Role, Team(s)) or one row per \
-team (Team, Manager, Assistant manager). Teams are matched by name, for example U12 Black.
+team (Team, Manager, Assistant manager). Teams are matched by name, for example U12 Black. The managers file \
+you choose is remembered for next time, so each week you only need to pick the FA and Thrive files.
+
+If the managers file has a phone number for the team manager (for example 07700 900010), the WhatsApp window also \
+shows a "Send to <Manager> on WhatsApp..." button. It opens WhatsApp (or WhatsApp Web in your browser) straight \
+into that manager's chat with the message already filled in, including your edits. Nothing is sent until you press \
+send in WhatsApp. UK numbers starting 0 are treated as +44. The Team box shows how many players in each team are \
+not paying, so you can see at a glance which managers need chasing.
 
 Send messages only to the people who need them, never to a big group, and ask them to delete them afterwards."""),
     ("paying", "Not paying", """\
@@ -720,7 +728,7 @@ class App(tk.Tk):
         b_prev = tip(ttk.Button(top, text="◀", width=3, command=lambda: self._step_team(-1)),
                      "Previous team (Alt+Left)")
         b_prev.pack(side="left", padx=(8, 2))
-        self.team_box = ttk.Combobox(top, textvariable=self.team_var, state="readonly", width=26)
+        self.team_box = ttk.Combobox(top, textvariable=self.team_var, state="readonly", width=44)
         self.team_box.pack(side="left")
         self.team_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_team_tab())
         tip(self.team_box, "Choose the team to show.")
@@ -1212,13 +1220,13 @@ class App(tk.Tk):
             ("Not checked, because the Thrive export has no answers for: " + ", ".join(unchecked)
              + ". Add them in Thrive (Contacts > Manage table columns) and export again.") if unchecked else "")
         labels = rc.team_labels(self.result)
-        self.team_choices = {rc.team_choice_label(self.result, l): l for l in labels}
+        self.team_choices = {rc.team_choice_label_with_unpaid(self.result, l): l for l in labels}
         self.team_box["values"] = list(self.team_choices)
         cur = self.team_choices.get(self.team_var.get(), self.team_var.get())
         if cur not in labels:
             last = self.cfg.get("team", "")
             cur = last if last in labels else labels[0] if labels else ""
-        self.team_var.set(rc.team_choice_label(self.result, cur) if cur else "")
+        self.team_var.set(rc.team_choice_label_with_unpaid(self.result, cur) if cur else "")
         if False and self.team_var.get() not in labels:
             last = self.cfg.get("team", "")
             self.team_var.set(last if last in labels else labels[0] if labels else "")
@@ -1367,7 +1375,7 @@ class App(tk.Tk):
     def _fill_team_tab(self) -> None:
         label = getattr(self, "team_choices", {}).get(self.team_var.get(), self.team_var.get())
         labels = list(self.team_box["values"])
-        choice_label = rc.team_choice_label(self.result, label) if self.result else label
+        choice_label = rc.team_choice_label_with_unpaid(self.result, label) if self.result else label
         self.team_pos_var.set(f"{labels.index(choice_label) + 1} of {len(labels)}" if choice_label in labels else "")
         if not self.result or label not in self.result.teams:
             self.team_summary_var.set("")
@@ -1426,6 +1434,31 @@ class App(tk.Tk):
         self.clipboard_append(phone)
         self.status_var.set(f"Copied {kind} phone for {label}: {phone}")
 
+    def _manager_send_buttons(self, row: ttk.Frame, label: Optional[str], get_text) -> None:
+        """'Send to <Manager> on WhatsApp...' buttons: open wa.me at the manager's chat with the text filled in."""
+        for child in row.winfo_children():
+            child.destroy()
+        if not self.result or not label:
+            return
+        managers = rc.manager_contacts(self.result, label)
+        if not managers:
+            if self.result.staff:
+                ttk.Label(row, style="Hint.TLabel", text=f"No manager phone number for {label} in the managers file."
+                          ).pack(side="left")
+            return
+
+        def send(name: str, phone: str) -> None:
+            link = rc.whatsapp_link(phone, get_text())
+            if link:
+                webbrowser.open(link)
+                self.status_var.set(f"Opening WhatsApp at {name}'s chat. Check the message, then press send.")
+
+        for name, phone in managers:
+            btn = ttk.Button(row, text=f"Send to {name} on WhatsApp...", command=lambda n=name, p=phone: send(n, p))
+            btn.pack(side="left", padx=(0, 8))
+            tip(btn, f"Opens WhatsApp (app or WhatsApp Web) at {name}'s chat with this message ready. "
+                     "Check it, then press send. The message goes to WhatsApp in the link.")
+
     def copy_whatsapp(self) -> None:
         """Show WhatsApp-ready text for the chosen team, to copy and paste."""
         label = getattr(self, "team_choices", {}).get(self.team_var.get(), self.team_var.get())
@@ -1451,9 +1484,12 @@ class App(tk.Tk):
                   )).pack(fill="x", padx=10, pady=8)
         row = ttk.Frame(win)  # packed before the text so the buttons stay visible when the window is small
         row.pack(fill="x", padx=10, pady=8, side="bottom")
+        send_row = ttk.Frame(win)
+        send_row.pack(fill="x", padx=10, pady=(4, 0), side="bottom")
         nb = ttk.Notebook(win)
         nb.pack(fill="both", expand=True, padx=10)
         boxes = []
+        self._manager_send_buttons(send_row, label, lambda: boxes[nb.index("current")].get("1.0", "end"))
         for title, text in parts:
             frame = ttk.Frame(nb)
             box = tk.Text(frame, wrap="word", font=FONT, undo=True)
@@ -1479,7 +1515,9 @@ class App(tk.Tk):
         if not messagebox.askokcancel("Data protection warning", WHATSAPP_WARNING, icon="warning"):
             return
         all_label = "All teams"
-        teams = list(rc.not_paying_by_team(self.result))
+        groups = rc.not_paying_by_team(self.result)
+        choices = {f"{all_label} — {sum(len(m) for m in groups.values())} not paying": None}
+        choices.update({rc.not_paying_choice_label(self.result, t, len(m)): t for t, m in groups.items()})
         win = tk.Toplevel(self)
         win.title("Copy for WhatsApp: not paying")
         win.geometry("640x660")
@@ -1491,12 +1529,14 @@ class App(tk.Tk):
         pick = ttk.Frame(win)
         pick.pack(fill="x", padx=10, pady=(0, 6))
         ttk.Label(pick, text="Team").pack(side="left")
-        team_var = tk.StringVar(value=all_label)
-        box = ttk.Combobox(pick, textvariable=team_var, state="readonly", width=28, values=[all_label] + teams)
+        team_var = tk.StringVar(value=next(iter(choices)))
+        box = ttk.Combobox(pick, textvariable=team_var, state="readonly", width=44, values=list(choices))
         box.pack(side="left", padx=8)
         # Buttons packed before the text so they stay visible when the window is small
         row = ttk.Frame(win)
         row.pack(fill="x", padx=10, pady=8, side="bottom")
+        send_row = ttk.Frame(win)
+        send_row.pack(fill="x", padx=10, pady=(4, 0), side="bottom")
         nb = ttk.Notebook(win)
         nb.pack(fill="both", expand=True, padx=10)
         boxes = []
@@ -1505,8 +1545,10 @@ class App(tk.Tk):
             for tab_id in nb.tabs():
                 nb.forget(tab_id)
             boxes.clear()
-            team = None if team_var.get() == all_label else team_var.get()
+            team = choices.get(team_var.get())
             msgs = rc.whatsapp_not_paying(self.result, team)
+            self._manager_send_buttons(send_row, team if team in self.result.teams else None,
+                                       lambda: boxes[nb.index("current")].get("1.0", "end"))
             for i, text in enumerate(msgs, 1):
                 frame = ttk.Frame(nb)
                 txt = tk.Text(frame, wrap="word", font=FONT, undo=True)
