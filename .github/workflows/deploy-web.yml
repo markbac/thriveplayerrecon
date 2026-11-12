@@ -88,20 +88,52 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload built web directory for deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayerReconcile-web-dist-${{ github.sha }}
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
 
+  deploy-pages:
+    name: Publish to GitHub Pages
+    needs: test-and-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  deploy-hostinger:
+    name: Publish to Hostinger via FTP
+    needs: test-and-build
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built web directory
+        uses: actions/download-artifact@v4
+        with:
+          name: PlayerReconcile-web-dist-${{ github.sha }}
+          path: web/dist
+
       - name: Deploy to Hostinger via FTP
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
-          python - << 'EOF'
+          python3 - << 'EOF'
           import ftplib
           import os
           import re
@@ -115,7 +147,6 @@ jobs:
               print("Hostinger FTP secrets not configured; skipping FTP deploy.")
               raise SystemExit(0)
 
-          # Strip any scheme (ftp://, ftps://) and extract host + optional remote path/port
           cleaned = re.sub(r"^[a-zA-Z]+://", "", raw_server).strip()
           parts = cleaned.split("/", 1)
           host_port = parts[0].strip()
@@ -132,7 +163,7 @@ jobs:
               ctx = ssl.create_default_context()
               ctx.check_hostname = False
               ctx.verify_mode = ssl.CERT_NONE
-              ftps = ftplib.FTP_TLS(context=ctx, timeout=30)
+              ftps = ftplib.FTP_TLS(context=ctx, timeout=20)
               ftps.connect(host, port)
               ftps.login(user, password)
               ftps.prot_p()
@@ -140,10 +171,20 @@ jobs:
               print("Connected securely via FTPS (TLS).")
           except Exception as tls_exc:
               print(f"FTPS handshake/login note ({tls_exc}); trying standard FTP...")
-              ftp = ftplib.FTP(timeout=30)
-              ftp.connect(host, port)
-              ftp.login(user, password)
-              print("Connected via standard FTP.")
+              try:
+                  ftp = ftplib.FTP(timeout=20)
+                  ftp.connect(host, port)
+                  ftp.login(user, password)
+                  print("Connected via standard FTP.")
+              except Exception as ftp_exc:
+                  print(
+                      "::error::Could not connect to FTP_SERVER on port 21 "
+                      f"({ftp_exc}). In Hostinger hPanel -> Files -> FTP Accounts, "
+                      "copy the numeric 'FTP IP' (e.g. 185.x.x.x or 82.x.x.x) rather than "
+                      "ftp.yourdomain.com (which can fail if your domain uses Cloudflare proxy "
+                      "or has no ftp DNS record), and update the FTP_SERVER secret in GitHub."
+                  )
+                  raise SystemExit(1)
 
           ftp.set_pasv(True)
 
@@ -182,16 +223,3 @@ jobs:
           ftp.quit()
           print(f"Successfully uploaded {uploaded} files to Hostinger!")
           EOF
-
-  deploy-pages:
-    name: Publish to GitHub Pages
-    needs: test-and-build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
