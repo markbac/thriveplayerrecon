@@ -70,7 +70,7 @@ def test_whatsapp_not_paying_text(result):
     text = "\n".join(rc.whatsapp_not_paying(result))
     assert "Tia Tiny (U05 (Thrive))" in text
     tia = text.split("Tia Tiny")[1].split("\n")[1]
-    assert "FA not needed" in tia and "Active mandate ❌" in tia
+    assert "FA not needed" in tia and "Active Direct Debit mandate ❌" in tia
     one = rc.whatsapp_not_paying(result, "U11 White")[0]
     assert "Ben Bold" in one and "Dan Dee" not in one
     assert "https://member.thrive4.com/" in one

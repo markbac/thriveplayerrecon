@@ -1287,10 +1287,10 @@ NOT_PAYING_FOOTNOTE = (
     "2. Log in: If prompted, sign in with your Thrive4 MemberHub credentials (your existing LoveAdmin login) to reach the Dashboard.\n"
     "3. Open Account, then Settings: In the left-hand menu, click \"Account\" to expand it, then select \"Settings\".\n"
     "4. Open Payment Settings: On the Settings page, click \"Payment Settings\".\n"
-    "5. Set up the mandate: Under Mandates, click \"Set up\". Follow the on-screen prompts to enter your bank details.\n\n"
-    "_FA only players may be in Thrive under a different name: check before chasing. "
-                       "This message contains personal data about children (UK GDPR): do not forward it and "
-                       "delete it when no longer needed._")
+    "5. Set up the mandate: Under Mandates, click \"Set up\". Follow the on-screen prompts to enter your bank details.")
+
+
+
 
 
 def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optional[date] = None) -> List[str]:
@@ -1306,8 +1306,9 @@ def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optio
         lines = [f"*{label}*"]
         for source, row in members:
             name = row.fa_name or row.thrive_name
-            lines.append(f"{name} ({label})\n   {_fa_mark(source)}  Thrive {mark(row.th is not None)}  "
-                         f"Active mandate {_mandate_mark(row)}")
+            fa_label = "FA not needed" if source == NO_FA else f"Registered with FA {mark(source in ('Both', 'FA only'))}"
+            lines.append(f"{name} ({label})\n   {fa_label}  Signed up in Thrive (membership) {mark(row.th is not None)}  "
+                         f"Active Direct Debit mandate {_mandate_mark(row)}")
             total += 1
         if len(lines) == 1:
             lines.append("Everyone in this team is paying through Thrive.")

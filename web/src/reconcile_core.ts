@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.5.0';
+export const VERSION = '1.5.1';
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
 export const NO_FA = 'No FA needed';
@@ -2028,10 +2028,10 @@ export const NOT_PAYING_FOOTNOTE =
   '2. Log in: If prompted, sign in with your Thrive4 MemberHub credentials (your existing LoveAdmin login) to reach the Dashboard.\n' +
   '3. Open Account, then Settings: In the left-hand menu, click "Account" to expand it, then select "Settings".\n' +
   '4. Open Payment Settings: On the Settings page, click "Payment Settings".\n' +
-  '5. Set up the mandate: Under Mandates, click "Set up". Follow the on-screen prompts to enter your bank details.\n\n' +
-  '_FA only players may be in Thrive under a different name: check before chasing. ' +
-  'This message contains personal data about children (UK GDPR): do not forward it and ' +
-  'delete it when no longer needed._';
+  '5. Set up the mandate: Under Mandates, click "Set up". Follow the on-screen prompts to enter your bank details.';
+
+
+
 
 export function _phone(text: string): string {
   const out: string[] = [];
@@ -2170,7 +2170,7 @@ export function whatsapp_not_paying(
     for (const [source, row] of members) {
       const name = row.fa_name || row.thrive_name;
       lines.push(
-        `${name} (${label})\n   ${_fa_mark(source)}  Thrive ${mark(row.th !== null)}  Active mandate ${_mandate_mark(row)}`
+        `${name} (${label})\n   ${source === NO_FA ? 'FA not needed' : `Registered with FA ${mark(source === 'Both' || source === 'FA only')}`}  Signed up in Thrive (membership) ${mark(row.th !== null)}  Active Direct Debit mandate ${_mandate_mark(row)}`
       );
       total += 1;
     }
