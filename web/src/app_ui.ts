@@ -152,6 +152,7 @@ export class WebApp {
           <img src="./logo_32.png" alt="" aria-hidden="true" />
           <h1>${rc.APP_TITLE}: FA vs Thrive</h1>
           <span class="app-version-badge" id="version-badge">v${rc.VERSION}</span>
+          <span class="app-version-badge" id="build-date-badge">Created ${rc.BUILD_DATETIME}</span>
         </div>
         <nav class="app-nav-actions" aria-label="Application menu">
           <button type="button" id="nav-help-quick">How to use (F1)</button>
@@ -472,7 +473,7 @@ export class WebApp {
       </main>
 
       <footer class="status-footer" role="contentinfo">
-        <span id="status-bar-text">Version ${rc.VERSION}   |   Not reconciled yet</span>
+        <span id="status-bar-text">Version ${rc.VERSION} (created ${rc.BUILD_DATETIME})   |   Not reconciled yet</span>
         <span>100% client-side — your data never leaves your computer</span>
       </footer>
 
@@ -2366,7 +2367,7 @@ export class WebApp {
   private showAbout(): void {
     this.showMessageModal(
       `About ${rc.APP_TITLE}`,
-      `${rc.APP_TITLE}\nVersion ${rc.VERSION} (Web App)\n\nCompares the FA player registration report with the Thrive export, flags data quality problems and produces team sheets for managers.\n\nWorks entirely in your browser on your computer. Nothing is uploaded or sent anywhere.`
+      `${rc.APP_TITLE}\nVersion ${rc.VERSION} (Web App — created ${rc.BUILD_DATETIME})\n\nCompares the FA player registration report with the Thrive export, flags data quality problems and produces team sheets for managers.\n\nWorks entirely in your browser on your computer. Nothing is uploaded or sent anywhere.`
     );
   }
 

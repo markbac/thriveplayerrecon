@@ -14,7 +14,7 @@ from tkinter import font as tkfont
 from typing import Dict, Optional
 
 import reconcile_core as rc
-from version import APP_NAME, APP_TITLE, __version__
+from version import APP_NAME, APP_TITLE, BUILD_DATETIME, __version__
 
 SOURCE_COLOURS = {"Both": "#E2F0D9", "FA only": "#FCE4D6", "Thrive only": "#DDEBF7", rc.NO_FA: "#EDEDED"}
 UNPAID_COLOUR = "#F4A3A3"  # strong red: not paying through Thrive, overrides the colours above on team sheets
@@ -342,7 +342,7 @@ def open_folder(path: str) -> None:
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title(f"{APP_TITLE} v{__version__}: FA vs Thrive")
+        self.title(f"{APP_TITLE} v{__version__} ({BUILD_DATETIME}): FA vs Thrive")
         self.geometry("1360x800")
         self.minsize(960, 620)
         try:  # sharp text on high-DPI Windows displays
@@ -386,7 +386,7 @@ class App(tk.Tk):
         self.fuzzy_var = tk.StringVar(value=f"{float(self.cfg['fuzzy']):.2f}")
         self.search_var = tk.StringVar()
         self.hint_var = tk.StringVar()
-        self.status_var = tk.StringVar(value=f"Version {__version__}")
+        self.status_var = tk.StringVar(value=f"Version {__version__} (created {BUILD_DATETIME})")
         self.summary_var = tk.StringVar()
         self.view_title_var = tk.StringVar()
         self.view_desc_var = tk.StringVar()
@@ -425,7 +425,7 @@ class App(tk.Tk):
         self.run_files = None
         for var in (self.fa_var, self.thrive_var, self.staff_var):
             var.trace_add("write", lambda *_a: self._files_changed())
-        self.status_var.set(f"Version {__version__}   |   Not reconciled yet")
+        self.status_var.set(f"Version {__version__} (created {BUILD_DATETIME})   |   Not reconciled yet")
         self.bind("<F1>", lambda _e: self.show_help("quick"))
         self.bind("<Control-r>", lambda _e: self.run())
 
@@ -916,7 +916,7 @@ class App(tk.Tk):
             text.mark_gravity(key, "left")
             text.insert("end", title + "\n", "h")
             text.insert("end", body + "\n")
-        text.insert("end", f"\n{APP_TITLE} version {__version__}\n")
+        text.insert("end", f"\n{APP_TITLE} version {__version__} (created {BUILD_DATETIME})\n")
         text.configure(state="disabled")
         text.see(section)
         text.yview(section)
@@ -924,7 +924,7 @@ class App(tk.Tk):
     def show_about(self) -> None:
         messagebox.showinfo(
             f"About {APP_TITLE}",
-            f"{APP_TITLE}\nVersion {__version__}\n\n"
+            f"{APP_TITLE}\nVersion {__version__} (created {BUILD_DATETIME})\n\n"
             "Compares the FA player registration report with the Thrive export, flags data quality problems "
             "and produces team sheets for managers.\n\n"
             "Works entirely on this computer. Nothing is sent anywhere.\n\n"
