@@ -1306,9 +1306,14 @@ def whatsapp_not_paying(result: Result, team: Optional[str] = None, today: Optio
         lines = [f"*{label}*"]
         for source, row in members:
             name = row.fa_name or row.thrive_name
-            fa_label = "FA not needed" if source == NO_FA else f"Registered with FA {mark(source in ('Both', 'FA only'))}"
-            lines.append(f"{name} ({label})\n   {fa_label}  Signed up in Thrive (membership) {mark(row.th is not None)}  "
-                         f"Active Direct Debit mandate {_mandate_mark(row)}")
+            issues = []
+            if row.th is None:
+                issues.append("   ❌ *NOT SIGNED UP IN THRIVE (NO MEMBERSHIP)*")
+            if row.th is None or not row.th.mandate:
+                issues.append("   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*")
+            lines.append(f"*{name}* ({label})\n" + "\n".join(issues))
+
+
             total += 1
         if len(lines) == 1:
             lines.append("Everyone in this team is paying through Thrive.")

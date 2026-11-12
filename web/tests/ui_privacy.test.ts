@@ -48,7 +48,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const app = new WebApp(root, storage);
 
     // Initially shows "Not reconciled yet" placeholder and version
-    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.5.2');
+    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.5.3');
     expect(root.querySelector('#build-date-badge')?.textContent).toContain('Created ');
     expect((root.querySelector('#placeholder-results') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#run-state-label')?.textContent).toBe('Not run yet');
@@ -278,9 +278,9 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
 
     const waTextarea = root.querySelector('.whatsapp-textarea') as HTMLTextAreaElement;
     expect(waTextarea.value).toContain('*Currently not paying fees*: U12 Black');
-    expect(waTextarea.value).toContain('Dan Dee (U12 Black)');
+    expect(waTextarea.value).toContain('*Dan Dee* (U12 Black)');
     expect(waTextarea.value).toContain(
-      'Registered with FA ✅  Signed up in Thrive (membership) ❌  Active Direct Debit mandate ❌'
+      '   ❌ *NOT SIGNED UP IN THRIVE (NO MEMBERSHIP)*\n   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*'
     );
     app.closeModal();
 
@@ -293,9 +293,9 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
 
     const waTextarea2 = root.querySelector('.whatsapp-textarea') as HTMLTextAreaElement;
     expect(waTextarea2.value).toContain('*Currently not paying fees*: U11 White');
-    expect(waTextarea2.value).toContain('Ben Bold (U11 White)');
+    expect(waTextarea2.value).toContain('*Ben Bold* (U11 White)');
     expect(waTextarea2.value).toContain(
-      'Registered with FA ✅  Signed up in Thrive (membership) ✅  Active Direct Debit mandate ❌'
+      '   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*'
     );
     expect(waTextarea2.value).toContain('https://member.thrive4.com/');
     expect(waTextarea2.value).toContain(
