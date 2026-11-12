@@ -101,23 +101,87 @@ jobs:
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
-          if [ -z "$FTP_SERVER" ] || [ -z "$FTP_USERNAME" ] || [ -z "$FTP_PASSWORD" ]; then
-            echo "Hostinger FTP secrets not configured; skipping FTP deploy."
-            exit 0
-          fi
-          sudo apt-get update -y && sudo apt-get install -y lftp
-          SERVER=$(echo "$FTP_SERVER" | sed -E 's#^[a-zA-Z]+://##; s#/+$##; s/^[[:space:]]+//; s/[[:space:]]+$//')
-          USER=$(echo "$FTP_USERNAME" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
-          lftp -e "
-            set ssl:verify-certificate no;
-            set ftp:ssl-allow yes;
-            set ftp:passive-mode on;
-            set net:timeout 20;
-            set net:max-retries 3;
-            set net:reconnect-interval-base 5;
-            mirror --reverse --verbose --overwrite web/dist/ ./;
-            bye
-          " -u "$USER","$FTP_PASSWORD" "$SERVER"
+          python - << 'EOF'
+          import ftplib
+          import os
+          import re
+          import ssl
+
+          raw_server = os.environ.get("FTP_SERVER", "").strip()
+          user = os.environ.get("FTP_USERNAME", "").strip()
+          password = os.environ.get("FTP_PASSWORD", "")
+
+          if not (raw_server and user and password):
+              print("Hostinger FTP secrets not configured; skipping FTP deploy.")
+              raise SystemExit(0)
+
+          # Strip any scheme (ftp://, ftps://) and extract host + optional remote path/port
+          cleaned = re.sub(r"^[a-zA-Z]+://", "", raw_server).strip()
+          parts = cleaned.split("/", 1)
+          host_port = parts[0].strip()
+          remote_subdir = parts[1].strip("/") if len(parts) > 1 else ""
+          if ":" in host_port:
+              host, port_s = host_port.rsplit(":", 1)
+              port = int(port_s)
+          else:
+              host, port = host_port, 21
+
+          print(f"Connecting to Hostinger FTP server (port {port})...")
+          ftp = None
+          try:
+              ctx = ssl.create_default_context()
+              ctx.check_hostname = False
+              ctx.verify_mode = ssl.CERT_NONE
+              ftps = ftplib.FTP_TLS(context=ctx, timeout=30)
+              ftps.connect(host, port)
+              ftps.login(user, password)
+              ftps.prot_p()
+              ftp = ftps
+              print("Connected securely via FTPS (TLS).")
+          except Exception as tls_exc:
+              print(f"FTPS handshake/login note ({tls_exc}); trying standard FTP...")
+              ftp = ftplib.FTP(timeout=30)
+              ftp.connect(host, port)
+              ftp.login(user, password)
+              print("Connected via standard FTP.")
+
+          ftp.set_pasv(True)
+
+          def ensure_dir(rel_dir: str) -> None:
+              if not rel_dir:
+                  return
+              cur = ""
+              for seg in rel_dir.split("/"):
+                  if not seg:
+                      continue
+                  cur = f"{cur}/{seg}" if cur else seg
+                  try:
+                      ftp.mkd(cur)
+                  except ftplib.error_perm:
+                      pass
+
+          if remote_subdir:
+              ensure_dir(remote_subdir)
+              ftp.cwd(remote_subdir)
+
+          local_root = os.path.abspath("web/dist")
+          uploaded = 0
+          for root, dirs, files in os.walk(local_root):
+              rel_root = os.path.relpath(root, local_root).replace("\\", "/")
+              if rel_root == ".":
+                  rel_root = ""
+              ensure_dir(rel_root)
+              for fname in sorted(files):
+                  local_path = os.path.join(root, fname)
+                  remote_path = f"{rel_root}/{fname}" if rel_root else fname
+                  with open(local_path, "rb") as fh:
+                      ftp.storbinary(f"STOR {remote_path}", fh)
+                  uploaded += 1
+                  print(f"Uploaded: {remote_path} ({os.path.getsize(local_path)} bytes)")
+
+          ftp.quit()
+          print(f"Successfully uploaded {uploaded} files to Hostinger!")
+          EOF
 
   deploy-pages:
     name: Publish to GitHub Pages
