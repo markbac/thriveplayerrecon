@@ -124,4 +124,32 @@ def test_settings_remembered(app_factory, fa_path, thrive_path):
     assert (b.winfo_width(), b.winfo_height()) == (1000, 660)
     assert b.nb.select() == str(b.np_tab)
     reconcile_in_app(b, fa_path, thrive_path)
-    assert b.team_var.get() == "U12 Black"
+    assert b.team_choices[b.team_var.get()] == "U12 Black"
+
+
+def test_unpaid_counts_and_send_to_manager_on_whatsapp(app_factory, fa_path, thrive_path, tmp_path, monkeypatch):
+    import app as appmod
+    opened = []
+    monkeypatch.setattr(appmod.webbrowser, "open", lambda url, *a, **k: opened.append(url))
+    staff = tmp_path / "managers.csv"
+    staff.write_text("Name,Role,Team(s),Phone\nAlex Example,Manager,U12 Black,07700 900010\n", encoding="utf-8")
+    a = app_factory()
+    reconcile_in_app(a, fa_path, thrive_path, staff=str(staff))
+    values = list(a.team_box["values"])
+    assert "U12 Black (Alex Example) — 1 not paying" in values
+    assert "U11 White — 1 not paying" in values
+    a.team_var.set("U12 Black (Alex Example) — 1 not paying"); a._fill_team_tab()
+    before = set(a.winfo_children())
+    a.copy_whatsapp()
+    win = next(w for w in a.winfo_children() if w not in before)
+
+    def walk(w):
+        yield w
+        for c in w.winfo_children():
+            yield from walk(c)
+
+    send = [w for w in walk(win) if w.winfo_class() == "TButton" and "Send to Alex Example" in str(w.cget("text"))]
+    assert len(send) == 1
+    send[0].invoke()
+    assert opened and opened[0].startswith("https://wa.me/447700900010?text=")
+    win.destroy()

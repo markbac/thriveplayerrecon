@@ -1,4 +1,6 @@
 """Matching, team membership, paying status and the not paying list."""
+import pytest
+
 from conftest import THRIVE_HEADERS, row_for, rc, write_thrive
 
 
@@ -75,3 +77,38 @@ def test_team_choice_label_with_manager(result):
     rc.attach_staff(result, staff, rc.DEFAULT_TEAM_MAP)
     assert rc.team_choice_label(result, "U12 Black") == "U12 Black (Alex Example)"
     assert rc.team_choice_label(result, "U11 White") == "U11 White"
+
+
+def test_team_choice_label_with_unpaid(result):
+    rc.attach_staff(result, [rc.Staff("Alex Example", "Manager", ["U12 Black"], "07700 900010")],
+                    rc.DEFAULT_TEAM_MAP)
+    for label in rc.team_labels(result):
+        n = rc.unpaid_count(result, label)
+        assert n == len(rc.not_paying_by_team(result).get(label, []))
+        text = rc.team_choice_label_with_unpaid(result, label)
+        assert text.endswith(f"— {n} not paying" if n else "— ✔ all paying")
+    assert rc.team_choice_label_with_unpaid(result, "U12 Black").startswith("U12 Black (Alex Example) — ")
+    assert rc.manager_contacts(result, "U12 Black") == [("Alex Example", "07700 900010")]
+
+
+@pytest.mark.parametrize("phone,expected", [
+    ("07700 900010", "447700900010"),
+    ("+44 7700 900010", "447700900010"),
+    ("0044 7700 900010", "447700900010"),
+    ("7700900010", "447700900010"),
+    ("07700 900010 / 07700 900011", "447700900010"),
+    ("+353 87 123 4567", "353871234567"),
+    ("ask Sam", None),
+    ("01234", None),
+    ("", None),
+])
+def test_whatsapp_number(phone, expected):
+    assert rc.whatsapp_number(phone) == expected
+
+
+def test_whatsapp_link_matches_web_encoding():
+    # Same output as encodeURIComponent in the web app
+    assert rc.whatsapp_link("07700 900010", " Hi *Alex* & team\n✔ ") == (
+        "https://wa.me/447700900010?text=Hi%20*Alex*%20%26%20team%0A%E2%9C%94")
+    assert rc.whatsapp_link("07700 900010", "") == "https://wa.me/447700900010"
+    assert rc.whatsapp_link("nope", "hi") is None

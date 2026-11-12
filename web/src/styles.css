@@ -1407,3 +1407,53 @@ tr.selected-mapping-row {
     min-height: 220px;
   }
 }
+
+/* Send to manager on WhatsApp (wa.me click-to-chat) */
+.wa-send-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+a.btn-whatsapp-send {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid #075e54;
+  background: #075e54;
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.btn-whatsapp-send:hover {
+  background: #054d44;
+}
+
+.wa-send-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.remember-staff-row {
+  margin-top: 8px;
+}
+
+/* Sortable column headings are keyboard reachable (Enter / Space) */
+th.sortable-th {
+  cursor: pointer;
+}
+
+/* Hidden helper used for the copy-to-clipboard fallback */
+.offscreen-copy {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  opacity: 0;
+}

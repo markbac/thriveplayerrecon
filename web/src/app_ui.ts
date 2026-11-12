@@ -3,7 +3,6 @@
  * Implements issues #18, #19, #20, #21, #22, #23, #24.
  */
 import * as rc from './reconcile_core';
-import * as excelIo from './excel_io';
 import * as settingsMod from './settings';
 import {
   BANNER_TEXT,
@@ -15,7 +14,9 @@ import {
   WHATSAPP_WARNING,
   export_warning,
 } from './help_content';
-import { loadFilesWithSteps, LoadedFilesPayload, ReconcileInput } from './reconcile_runner';
+import type { LoadedFilesPayload, ReconcileInput } from './reconcile_runner';
+import * as contact from './team_contact';
+import * as staffStore from './staff_store';
 
 export interface ChosenFile {
   name: string;
@@ -84,6 +85,44 @@ function downloadBlob(bytes: Uint8Array | string, fileName: string, mimeType: st
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** The Excel library is large, so it is only loaded when a file is exported. */
+function loadExcelIo(): Promise<typeof import('./excel_io')> {
+  return import('./excel_io');
+}
+
+/** Error the background worker reported about the files themselves (not a worker start-up failure). */
+class WorkerReportedError extends Error {}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+}
+
+/** Make a table heading sortable by mouse and keyboard, and tell screen readers its sort order. */
+function makeSortableHeader(
+  th: HTMLTableCellElement,
+  active: boolean,
+  desc: boolean,
+  onSort: () => void
+): void {
+  th.tabIndex = 0;
+  th.classList.add('sortable-th');
+  th.setAttribute('aria-sort', active ? (desc ? 'descending' : 'ascending') : 'none');
+  th.title = 'Sort by this column (click or press Enter)';
+  th.addEventListener('click', onSort);
+  th.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSort();
+    }
+  });
+}
+
 function todayIsoDate(): string {
   const d = rc.todayLocalDate();
   return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
@@ -97,6 +136,7 @@ export class WebApp {
   faFile: ChosenFile | null = null;
   thriveFile: ChosenFile | null = null;
   staffFile: ChosenFile | null = null;
+  staffRemembered = false;
 
   faPlayers: rc.FAPlayer[] | null = null;
   thrivePlayers: rc.ThrivePlayer[] | null = null;
@@ -123,12 +163,14 @@ export class WebApp {
 
   selectedMappingTeam = '';
   selectedMappingTarget = '';
+  modalReturnFocus: HTMLElement | null = null;
 
   constructor(root: HTMLElement, storage: Storage = window.localStorage) {
     this.root = root;
     this.storage = storage;
     this.settings = settingsMod.loadSettings(this.storage);
     this.renderShell();
+    this.restoreRememberedStaff();
     this.bindGlobalShortcuts();
     this.refreshAll();
   }
@@ -210,6 +252,10 @@ export class WebApp {
             <span>Files are read in your browser and never uploaded.</span>
             <button type="button" id="btn-staff-template">Managers template...</button>
           </div>
+          <label class="checkbox-row remember-staff-row" title="Keeps a copy of the managers file in this browser so you only need to pick the FA and Thrive files each week. Untick to delete it.">
+            <input type="checkbox" id="chk-remember-staff" />
+            <span>Remember managers list on this device</span>
+          </label>
         </div>
 
         <!-- Step 2 -->
@@ -524,11 +570,25 @@ export class WebApp {
     });
     this.setupFileSlot('staff', (file) => {
       this.staffFile = file;
+      this.staffRemembered = false;
+      if (staffStore.isRememberOn(this.storage)) {
+        this.saveRememberedStaff();
+      }
       this.onFilesModified();
+    });
+    this.root.querySelector('#chk-remember-staff')?.addEventListener('change', (e) => {
+      if ((e.target as HTMLInputElement).checked) {
+        this.saveRememberedStaff();
+      } else {
+        staffStore.forgetStaff(this.storage);
+        this.staffRemembered = false;
+        this.setStatus('The managers list is no longer remembered on this device.');
+      }
+      this.updateFileSlotsUI();
     });
 
     this.root.querySelector('#btn-staff-template')?.addEventListener('click', async () => {
-      const bytes = await excelIo.buildStaffTemplateBuffer();
+      const bytes = await (await loadExcelIo()).buildStaffTemplateBuffer();
       downloadBlob(
         bytes,
         'Managers_template.xlsx',
@@ -732,7 +792,9 @@ export class WebApp {
 
   private bindGlobalShortcuts(): void {
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !this.busy) {
+      if (e.key === 'Tab') {
+        this.trapModalFocus(e);
+      } else if (e.key === 'Escape' && !this.busy) {
         const backdrop = this.root.querySelector('#modal-backdrop') as HTMLElement;
         if (backdrop && !backdrop.hidden) {
           this.closeModal();
@@ -740,7 +802,16 @@ export class WebApp {
       } else if (e.key === 'F1') {
         e.preventDefault();
         this.showHelp('quick');
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') {
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === 'r' &&
+        this.faFile &&
+        this.thriveFile &&
+        !isEditableTarget(e.target)
+      ) {
+        // Ctrl+R reconciles once both files are chosen (reloading would lose them).
+        // Before that, or while typing, the browser's normal reload is left alone.
         e.preventDefault();
         void this.runReconcile();
       } else if (e.altKey && e.key === 'ArrowLeft' && this.activeTab === 'teams') {
@@ -794,6 +865,31 @@ export class WebApp {
     });
   }
 
+  private restoreRememberedStaff(): void {
+    const chk = this.root.querySelector('#chk-remember-staff') as HTMLInputElement;
+    chk.checked = staffStore.isRememberOn(this.storage);
+    const saved = staffStore.loadRememberedStaff(this.storage);
+    if (saved) {
+      this.staffFile = { name: saved.name, buffer: saved.buffer };
+      this.staffRemembered = true;
+    }
+    this.updateFileSlotsUI();
+  }
+
+  private saveRememberedStaff(): void {
+    const err = staffStore.rememberStaff(this.storage, this.staffFile, rc.formatDate(rc.todayLocalDate()));
+    if (err) {
+      this.showMessageModal('Managers list not remembered', err);
+      return;
+    }
+    if (this.staffFile) {
+      this.staffRemembered = true;
+      this.setStatus(`The managers list ${this.staffFile.name} will be remembered on this device.`);
+    } else {
+      this.setStatus('The next managers file you choose will be remembered on this device.');
+    }
+  }
+
   public setChosenFilesForTest(fa: ChosenFile | null, thrive: ChosenFile | null, staff: ChosenFile | null = null): void {
     this.faFile = fa;
     this.thriveFile = thrive;
@@ -811,7 +907,8 @@ export class WebApp {
       const statusBox = this.root.querySelector(`#status-${id}`) as HTMLElement;
       const clearBtn = this.root.querySelector(`#clear-${id}`) as HTMLButtonElement;
       if (file) {
-        statusBox.textContent = file.name;
+        statusBox.textContent =
+          id === 'staff' && this.staffRemembered ? `${file.name} (remembered)` : file.name;
         statusBox.classList.add('has-file');
         clearBtn.hidden = false;
       } else {
@@ -835,6 +932,44 @@ export class WebApp {
         );
       }
     }
+  }
+
+  /** Re-rendering a table replaces its headings, so put keyboard focus back on the one just used. */
+  private focusSortedHeader(theadSelector: string, index: number): void {
+    const th = this.root.querySelectorAll(`${theadSelector} th`)[index] as HTMLElement | undefined;
+    th?.focus();
+  }
+
+  /** Copy text and report honestly whether it worked (with a fallback for older browsers). */
+  private async copyText(text: string, okMessage: string): Promise<boolean> {
+    let ok = false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.className = 'offscreen-copy';
+      const host = (this.root.querySelector('#modal-backdrop:not([hidden])') as HTMLElement) || document.body;
+      host.appendChild(ta);
+      ta.select();
+      try {
+        ok = typeof document.execCommand === 'function' && document.execCommand('copy');
+      } catch {
+        ok = false;
+      }
+      ta.remove();
+    }
+    this.setStatus(
+      ok ? okMessage : 'Could not copy automatically. Select the text, press Ctrl+C (or long-press and Copy), then paste it.'
+    );
+    return ok;
   }
 
   private setHint(msg: string): void {
@@ -965,7 +1100,7 @@ export class WebApp {
               resolve(raw);
             } else if (data.type === 'error') {
               worker.terminate();
-              reject(new Error(data.message));
+              reject(new WorkerReportedError(data.message));
             }
           };
           worker.onerror = (err) => {
@@ -974,10 +1109,13 @@ export class WebApp {
           };
           worker.postMessage(input);
         });
-      } catch {
-        // Fallback if Worker URL resolution isn't available in test environment
+      } catch (exc) {
+        // The worker read the files and found a problem: report it, do not read them all again
+        if (exc instanceof WorkerReportedError) throw exc;
+        // Otherwise the worker could not start (old browser, blocked): read on the main thread instead
       }
     }
+    const { loadFilesWithSteps } = await import('./reconcile_runner');
     return loadFilesWithSteps(input, (step) => this.updateProgressStep(step));
   }
 
@@ -1036,7 +1174,7 @@ export class WebApp {
     for (const label of labels) {
       const opt = document.createElement('option');
       opt.value = label;
-      opt.textContent = rc.team_choice_label(res, label);
+      opt.textContent = contact.teamChoiceLabelWithUnpaid(res, label);
       selectTeam.appendChild(opt);
     }
     if (labels.length > 0) {
@@ -1193,18 +1331,19 @@ export class WebApp {
     tbody.innerHTML = '';
 
     const trHead = document.createElement('tr');
-    for (const [title, attr] of rc.COLUMNS) {
+    for (const [idx, [title, attr]] of rc.COLUMNS.entries()) {
       const th = document.createElement('th');
       const arrow =
         this.resultsSort.col === attr ? (this.resultsSort.desc ? ' ▼' : ' ▲') : '';
       th.textContent = title + arrow;
-      th.addEventListener('click', () => {
+      makeSortableHeader(th, this.resultsSort.col === attr, this.resultsSort.desc, () => {
         if (this.resultsSort.col === attr) {
           this.resultsSort.desc = !this.resultsSort.desc;
         } else {
           this.resultsSort = { col: attr, desc: false };
         }
         this.renderResultsTable();
+        this.focusSortedHeader('#thead-results', idx);
       });
       trHead.appendChild(th);
     }
@@ -1307,13 +1446,14 @@ export class WebApp {
       const arrow =
         this.teamSort.col === idx ? (this.teamSort.desc ? ' ▼' : ' ▲') : '';
       th.textContent = title + arrow;
-      th.addEventListener('click', () => {
+      makeSortableHeader(th, this.teamSort.col === idx, this.teamSort.desc, () => {
         if (this.teamSort.col === idx) {
           this.teamSort.desc = !this.teamSort.desc;
         } else {
           this.teamSort = { col: idx, desc: false };
         }
         this.renderTeamTab();
+        this.focusSortedHeader('#thead-teams', idx);
       });
       trHead.appendChild(th);
     });
@@ -1564,17 +1704,19 @@ export class WebApp {
     const hiddenNames = headers.filter((_, i) => !visibleColIndices.includes(i));
 
     const trHead = document.createElement('tr');
-    for (const colIdx of visibleColIndices) {
+    for (const [pos, colIdx] of visibleColIndices.entries()) {
       const th = document.createElement('th');
       const arrow =
         sortState.col === colIdx ? (sortState.desc ? ' ▼' : ' ▲') : '';
       th.textContent = headers[colIdx] + arrow;
-      th.addEventListener('click', () => {
+      makeSortableHeader(th, sortState.col === colIdx, sortState.desc, () => {
         if (sortState.col === colIdx) {
           onSortChange({ col: colIdx, desc: !sortState.desc });
         } else {
           onSortChange({ col: colIdx, desc: false });
         }
+        const theadId = thead.id ? `#${thead.id}` : '';
+        if (theadId) this.focusSortedHeader(theadId, pos);
       });
       trHead.appendChild(th);
     }
@@ -1841,8 +1983,7 @@ export class WebApp {
       );
       return;
     }
-    void navigator.clipboard?.writeText(phone);
-    this.setStatus(`Copied ${kind} phone for ${this.settings.team}: ${phone}`);
+    void this.copyText(phone, `Copied ${kind} phone for ${this.settings.team}: ${phone}`);
   }
 
   private openTeamWhatsAppModal(): void {
@@ -1873,7 +2014,8 @@ export class WebApp {
         `Copy for WhatsApp: ${label}`,
         'Pick a tab, click Copy to clipboard, then paste into WhatsApp. You can edit the text first. Send the squad message and the medical message separately, and only to the people who need them.',
         parts,
-        !medical ? 'Medical message left out (Include medical details is unticked).' : ''
+        !medical ? 'Medical message left out (Include medical details is unticked).' : '',
+        label
       );
     });
   }
@@ -1891,7 +2033,9 @@ export class WebApp {
       this.showWhatsAppPartsModal(
         `Copy payment for WhatsApp: ${label}`,
         'Players in this team who are missing from Thrive or have no active direct debit mandate. Click Copy to clipboard (or Share to app) to send to the team manager.',
-        parts
+        parts,
+        '',
+        label
       );
     });
   }
@@ -1901,7 +2045,9 @@ export class WebApp {
     this.openConfirmModal('Data protection warning', WHATSAPP_WARNING, () => {
       if (!this.result) return;
       const allLabel = 'All teams';
-      const teams = Object.keys(rc.not_paying_by_team(this.result));
+      const groups = rc.not_paying_by_team(this.result);
+      const teams = Object.keys(groups);
+      const totalUnpaid = Object.values(groups).reduce((n, members) => n + members.length, 0);
 
       const body = document.createElement('div');
       const hint = document.createElement('p');
@@ -1921,7 +2067,10 @@ export class WebApp {
       for (const t of [allLabel, ...teams]) {
         const opt = document.createElement('option');
         opt.value = t;
-        opt.textContent = t === allLabel ? allLabel : rc.team_choice_label(this.result, t);
+        opt.textContent =
+          t === allLabel
+            ? `${allLabel} — ${totalUnpaid} not paying`
+            : contact.notPayingChoiceLabel(this.result, t, groups[t].length);
         select.appendChild(opt);
       }
       pickRow.append(lbl, select);
@@ -1932,7 +2081,9 @@ export class WebApp {
       const textarea = document.createElement('textarea');
       textarea.className = 'whatsapp-textarea';
       textarea.setAttribute('aria-label', 'WhatsApp message text');
-      body.append(tabsBar, textarea);
+      let sendRow = document.createElement('div');
+      sendRow.className = 'wa-send-row';
+      body.append(tabsBar, textarea, sendRow);
 
       let currentTexts: string[] = [];
       let activeIdx = 0;
@@ -1957,6 +2108,10 @@ export class WebApp {
           tabsBar.appendChild(b);
         });
         textarea.value = currentTexts[0] || '';
+        const team = chosen && chosen in this.result.teams ? chosen : null;
+        const nextRow = this.buildManagerSendRow(team, () => textarea.value);
+        sendRow.replaceWith(nextRow);
+        sendRow = nextRow;
       };
 
       select.addEventListener('change', renderMessages);
@@ -1972,8 +2127,7 @@ export class WebApp {
       copyBtn.className = 'btn-primary';
       copyBtn.textContent = 'Copy to clipboard';
       copyBtn.addEventListener('click', () => {
-        void navigator.clipboard?.writeText(textarea.value.trim());
-        this.setStatus('Copied. Paste it into WhatsApp.');
+        void this.copyText(textarea.value.trim(), 'Copied. Paste it into WhatsApp.');
       });
       left.appendChild(copyBtn);
 
@@ -2002,7 +2156,8 @@ export class WebApp {
     title: string,
     description: string,
     parts: Array<[string, string]>,
-    footerNote = ''
+    footerNote = '',
+    teamLabel: string | null = null
   ): void {
     const body = document.createElement('div');
     const descP = document.createElement('p');
@@ -2039,6 +2194,7 @@ export class WebApp {
 
     textarea.value = texts[0] || '';
     updateTabButtons();
+    body.appendChild(this.buildManagerSendRow(teamLabel, () => textarea.value));
 
     const footer = document.createElement('div');
     footer.className = 'modal-footer-split';
@@ -2051,8 +2207,7 @@ export class WebApp {
     copyBtn.className = 'btn-primary';
     copyBtn.textContent = 'Copy to clipboard';
     copyBtn.addEventListener('click', () => {
-      void navigator.clipboard?.writeText(textarea.value.trim());
-      this.setStatus('Copied. Paste it into WhatsApp.');
+      void this.copyText(textarea.value.trim(), 'Copied. Paste it into WhatsApp.');
     });
     left.appendChild(copyBtn);
 
@@ -2083,6 +2238,48 @@ export class WebApp {
     this.openCustomModal(title, body, footer);
   }
 
+  /**
+   * "Send to <Manager> on WhatsApp..." buttons: open wa.me straight into that manager's chat
+   * with the message (as currently edited in the textarea) pre-filled. Nothing is sent until the
+   * user presses send in WhatsApp.
+   */
+  private buildManagerSendRow(teamLabel: string | null, getText: () => string): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = 'wa-send-row';
+    if (!this.result || !teamLabel) return row;
+    const managers = contact.managerContacts(this.result, teamLabel);
+    if (managers.length === 0) {
+      const note = document.createElement('p');
+      note.className = 'wa-send-note';
+      note.textContent = this.staff.length
+        ? `No manager phone number for ${teamLabel} in the managers file, so it cannot open WhatsApp at their chat.`
+        : 'Tip: add a managers file with phone numbers in Step 1 to get a "Send to manager on WhatsApp" button here.';
+      row.appendChild(note);
+      return row;
+    }
+    for (const m of managers) {
+      const a = document.createElement('a');
+      a.className = 'btn-whatsapp-send';
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = `Send to ${m.name} on WhatsApp...`;
+      a.href = contact.whatsappLink(m.phone, getText()) || '#';
+      a.title = `Opens WhatsApp (app or WhatsApp Web) at ${m.name}'s chat with this message ready. Check it, then press send.`;
+      // Rebuild the link at click time so any edits to the text are included.
+      a.addEventListener('click', () => {
+        a.href = contact.whatsappLink(m.phone, getText()) || '#';
+        this.setStatus(`Opening WhatsApp at ${m.name}'s chat. Check the message, then press send.`);
+      });
+      row.appendChild(a);
+    }
+    const note = document.createElement('p');
+    note.className = 'wa-send-note';
+    note.textContent =
+      'Opens WhatsApp with this message ready to send. The message goes to WhatsApp in the link, so use it only for the intended manager.';
+    row.appendChild(note);
+    return row;
+  }
+
   // ------------------------------------------------------------------ Excel & Zip Exports (#23)
 
   private exportFullWorkbook(): void {
@@ -2092,7 +2289,7 @@ export class WebApp {
       export_warning(this.settings.medical),
       async () => {
         if (!this.result) return;
-        const bytes = await excelIo.buildFullWorkbookBuffer(
+        const bytes = await (await loadExcelIo()).buildFullWorkbookBuffer(
           this.result,
           this.settings.team_map,
           this.faFile?.name || '',
@@ -2118,7 +2315,7 @@ export class WebApp {
       export_warning(this.settings.medical),
       async () => {
         if (!this.result) return;
-        const bytes = await excelIo.buildTeamWorkbookBuffer(
+        const bytes = await (await loadExcelIo()).buildTeamWorkbookBuffer(
           this.result,
           label,
           this.settings.medical
@@ -2145,7 +2342,7 @@ export class WebApp {
       export_warning(this.settings.medical),
       async () => {
         if (!this.result) return;
-        const { zipBytes, files } = await excelIo.buildEachTeamZipBuffer(
+        const { zipBytes, files } = await (await loadExcelIo()).buildEachTeamZipBuffer(
           this.result,
           this.settings.medical
         );
@@ -2162,7 +2359,7 @@ export class WebApp {
     if (!this.result) return;
     this.openConfirmModal('Data protection warning', export_warning(false), async () => {
       if (!this.result) return;
-      const bytes = await excelIo.buildNotPayingWorkbookBuffer(this.result);
+      const bytes = await (await loadExcelIo()).buildNotPayingWorkbookBuffer(this.result);
       const fileName = `Not_Paying_${todayIsoDate()}.xlsx`;
       downloadBlob(
         bytes,
@@ -2177,7 +2374,7 @@ export class WebApp {
     if (!this.result) return;
     this.openConfirmModal('Data protection warning', export_warning(false), async () => {
       if (!this.result) return;
-      const bytes = await excelIo.buildConsentsWorkbookBuffer(this.result);
+      const bytes = await (await loadExcelIo()).buildConsentsWorkbookBuffer(this.result);
       const fileName = `Missing_Consents_${todayIsoDate()}.xlsx`;
       downloadBlob(
         bytes,
@@ -2196,17 +2393,64 @@ export class WebApp {
     const bodyContainer = this.root.querySelector('#modal-body') as HTMLElement;
     const footerContainer = this.root.querySelector('#modal-footer') as HTMLElement;
 
+    const wasOpen = !backdrop.hidden;
+    if (!wasOpen) {
+      const active = document.activeElement as HTMLElement | null;
+      this.modalReturnFocus = active && active !== document.body ? active : null;
+    }
     titleEl.textContent = title;
     bodyContainer.innerHTML = '';
     bodyContainer.appendChild(bodyEl);
     footerContainer.innerHTML = '';
     footerContainer.appendChild(footerEl);
     backdrop.hidden = false;
+
+    // Move focus into the dialog: the main button if there is one, else the first control, else the dialog
+    const dialog = backdrop.querySelector('.modal-dialog') as HTMLElement;
+    const target =
+      (footerContainer.querySelector('.btn-primary') as HTMLElement | null) ||
+      (dialog.querySelector(FOCUSABLE) as HTMLElement | null);
+    if (target) {
+      target.focus();
+    } else {
+      dialog.tabIndex = -1;
+      dialog.focus();
+    }
   }
 
   public closeModal(): void {
     const backdrop = this.root.querySelector('#modal-backdrop') as HTMLElement;
-    if (backdrop) backdrop.hidden = true;
+    if (!backdrop || backdrop.hidden) return;
+    backdrop.hidden = true;
+    const back = this.modalReturnFocus;
+    this.modalReturnFocus = null;
+    if (back && back.isConnected && typeof back.focus === 'function') {
+      back.focus();
+    }
+  }
+
+  /** Keep Tab and Shift+Tab inside an open dialog. */
+  private trapModalFocus(e: KeyboardEvent): void {
+    const backdrop = this.root.querySelector('#modal-backdrop') as HTMLElement;
+    if (!backdrop || backdrop.hidden) return;
+    const items = Array.from(backdrop.querySelectorAll(FOCUSABLE)).filter(
+      (el) => !(el as HTMLElement).hidden && !(el as HTMLElement).closest('[hidden]')
+    ) as HTMLElement[];
+    if (items.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    const inside = active ? backdrop.contains(active) : false;
+    if (e.shiftKey && (active === first || !inside)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !inside)) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 
   private openProgressModal(): void {
@@ -2427,7 +2671,15 @@ export class WebApp {
     okBtn.textContent = 'Continue';
     okBtn.addEventListener('click', () => {
       this.closeModal();
-      void onConfirm();
+      void (async () => {
+        try {
+          await onConfirm();
+        } catch (exc) {
+          const msg = exc instanceof Error ? exc.message : String(exc);
+          this.setStatus('Something went wrong. Nothing was saved.');
+          this.showMessageModal('Something went wrong', `That did not work:\n${msg}\n\nNothing was saved. Try again, or reconcile again first.`);
+        }
+      })();
     });
 
     footer.append(cancelBtn, okBtn);

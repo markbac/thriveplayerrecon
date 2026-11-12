@@ -140,7 +140,7 @@ The **Not paying** tab lists players with no active Thrive mandate, plus players
 
 > **Note:** a player listed as not found in Thrive may be there under a different name. Check before you chase.
 
-Use **Search** and the column headings to narrow and sort the list. **Copy for WhatsApp** makes a message listing each player's name and team, whether they are in the FA system and in Thrive, and whether they have an active mandate. Choose **All teams**, or one team to send to that team's manager.
+Use **Search** and the column headings to narrow and sort the list. **Copy for WhatsApp** makes a message listing each player's name and team, whether they are in the FA system and in Thrive, and whether they have an active mandate. Choose **All teams**, or one team to send to that team's manager. The team list shows how many players in each team are not paying (for example `U12 Black (Alex Example) - 2 not paying`), and choosing a team whose manager has a phone number adds a **Send to <Manager> on WhatsApp...** button.
 
 ## Missing consents
 
@@ -189,6 +189,10 @@ Managers do not use this tool, so you can send them text instead of a file. On t
 
 Each message ends with a data protection footnote. Long teams are split into parts, shown as tabs. You can edit the text, click **Copy to clipboard**, then paste into WhatsApp.
 
+If the managers file has a phone number for the team manager, the window also has a **Send to <Manager> on WhatsApp...** button. It opens WhatsApp (the app on a phone, or WhatsApp Web on a PC) straight into that manager's chat with the message already filled in, including your edits. Nothing is sent until you press send in WhatsApp. UK numbers starting `0` are treated as `+44`.
+
+The **Team** box on the Team sheets tab shows each team's unpaid count, for example `U12 Black (Alex Example) - 2 not paying` or `U10 Blue (Sam Green) - ✔ all paying`, so you can see at a glance which managers need chasing.
+
 > **Warning:** send these only to the manager and assistant who need them, never to a large group. Ask them not to forward the messages and to delete them when finished. WhatsApp keeps copies on every device in the chat.
 
 ## Managers file (optional)
@@ -201,6 +205,8 @@ To show manager and assistant manager names on team sheets, Excel files and mess
 | One row per team | Team, Manager, Assistant manager |
 
 If the file has phone numbers, **Copy manager phone** and **Copy assistant phone** on the Team sheets tab put the number on the clipboard. Paste it into WhatsApp to find their chat, then use **Copy for WhatsApp** to send the team details. Several teams or names in one cell can be separated by commas. Team names are matched to the FA and Thrive teams (for example `U12 Black`). Anything that does not match, and any team with no manager, is listed in the Summary sheet of the full workbook.
+
+The managers list rarely changes. The desktop app remembers the managers file you chose last time. The web app has a **Remember managers list on this device** tickbox in Step 1. When ticked, a copy of the managers file is kept in the browser's `localStorage` and chosen for you next time, so each week you only pick the FA and Thrive files. Untick it to delete the copy. Leave it unticked on shared or public computers.
 
 ## Team mappings
 

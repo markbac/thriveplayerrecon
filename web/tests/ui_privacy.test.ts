@@ -48,7 +48,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const app = new WebApp(root, storage);
 
     // Initially shows "Not reconciled yet" placeholder and version
-    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.5.5');
+    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.6.0');
     expect(root.querySelector('#build-date-badge')?.textContent).toContain('Created ');
     expect((root.querySelector('#placeholder-results') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#run-state-label')?.textContent).toBe('Not run yet');
@@ -116,10 +116,6 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     );
     expect(helpLinks).toContain('https://clubs.thefa.com/');
     expect(helpLinks).toContain('https://app.thrive4.com/');
-    expect(true).toBe(true
-
-
-    );
     app.closeModal();
 
     // Verify zero network calls and zero player data in storage (#14)
@@ -275,8 +271,8 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     app.switchTab('teams');
     const selectTeam = root.querySelector('#select-team') as HTMLSelectElement;
     const optionTexts = Array.from(selectTeam.options).map((o) => o.textContent);
-    expect(optionTexts).toContain('U12 Black (Alex Example)');
-    expect(optionTexts).toContain('U11 White');
+    expect(optionTexts).toContain('U12 Black (Alex Example) — 1 not paying');
+    expect(optionTexts).toContain('U11 White — 1 not paying');
 
     // Select U12 Black (where Dan Dee is FA only / missing from Thrive) and open Copy payment for WhatsApp
     selectTeam.value = 'U12 Black';
@@ -291,6 +287,21 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     );
     expect(waTextarea.value).toContain('*Currently not paying fees*: U12 Black');
     expect(waTextarea.value).toContain('*Dan Dee* (U12 Black)');
+
+    // One-click "Send to <Manager> on WhatsApp..." opens wa.me at the manager's chat with the
+    // message pre-filled, including any edits made in the text box first
+    const sendLink = root.querySelector('a.btn-whatsapp-send') as HTMLAnchorElement;
+    expect(sendLink).toBeTruthy();
+    expect(sendLink.textContent).toBe('Send to Alex Example on WhatsApp...');
+    expect(sendLink.target).toBe('_blank');
+    expect(sendLink.rel).toContain('noopener');
+    const origText = waTextarea.value;
+    waTextarea.value = 'Edited message for Alex';
+    sendLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(sendLink.getAttribute('href')).toBe(
+      'https://wa.me/447700900010?text=Edited%20message%20for%20Alex'
+    );
+    waTextarea.value = origText;
     expect(waTextarea.value).toContain(
       '   ❌ *NOT SIGNED UP IN THRIVE (NO MEMBERSHIP)*\n   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*'
     );
@@ -317,6 +328,29 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
       'https://book.thrive4.com/#/app/joinin/organisation/shop/a8b9edae-1af1-4df8-afe5-73e73f066998'
     );
     expect(waTextarea2.value).toContain('Open Payment Settings');
+    // U11 White has only an assistant listed, so no send button, just a note
+    expect(root.querySelector('a.btn-whatsapp-send')).toBeNull();
+    expect(root.querySelector('.wa-send-note')?.textContent).toContain(
+      'No manager phone number for U11 White'
+    );
+    app.closeModal();
+
+    // Not paying picker shows counts per team and a send button once a team is chosen
+    app.switchTab('not-paying');
+    (root.querySelector('#btn-np-whatsapp') as HTMLButtonElement).click();
+    (Array.from(root.querySelectorAll('#modal-footer button')).find(
+      (b) => b.textContent === 'Continue'
+    ) as HTMLButtonElement).click();
+    const npSelect = root.querySelector('#wa-np-team-select') as HTMLSelectElement;
+    const npOptions = Array.from(npSelect.options).map((o) => o.textContent);
+    expect(npOptions[0]).toBe('All teams — 3 not paying');
+    expect(npOptions).toContain('U12 Black (Alex Example) — 1 not paying');
+    expect(root.querySelector('a.btn-whatsapp-send')).toBeNull();
+    npSelect.value = 'U12 Black';
+    npSelect.dispatchEvent(new Event('change'));
+    const npSend = root.querySelector('a.btn-whatsapp-send') as HTMLAnchorElement;
+    expect(npSend.textContent).toBe('Send to Alex Example on WhatsApp...');
+    expect(npSend.getAttribute('href')).toMatch(/^https:\/\/wa\.me\/447700900010\?text=Hi%20Alex/);
     app.closeModal();
 
     document.body.removeChild(root);
