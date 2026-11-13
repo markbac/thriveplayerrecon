@@ -17,7 +17,8 @@ from typing import Dict, Optional
 import reconcile_core as rc
 from version import APP_NAME, APP_TITLE, BUILD_DATETIME, __version__
 
-SOURCE_COLOURS = {"Both": "#E2F0D9", "FA only": "#FCE4D6", "Thrive only": "#DDEBF7", rc.NO_FA: "#EDEDED"}
+SOURCE_COLOURS = {"Both": "#E2F0D9", "FA only": "#FCE4D6", "Thrive only": "#DDEBF7", rc.NO_FA: "#EDEDED",
+                  rc.FA_NOT_CHECKED: "#DDEBF7"}
 UNPAID_COLOUR = "#F4A3A3"  # strong red: not paying through Thrive, overrides the colours above on team sheets
 ROW_COLOURS = {"ok": "#E2F0D9", "warn": "#FFF2CC", "bad": "#F8CBAD", "info": "#EDEDED"}
 IGNORE_LABEL, UNMAPPED_LABEL = "(ignore)", "(unmapped)"
@@ -82,7 +83,8 @@ HELP = [
     ("quick", "Quick start", """\
 1.  Click Find my latest exports (or Browse) and choose the two Excel files: the FA player registration report \
 and the Thrive data export. "How to get these files" (in the Step 1 heading, or Help, Getting the exports) has \
-the steps for downloading them and the Thrive columns to include.
+the steps for downloading them and the Thrive columns to include. The FA report is optional: with only \
+the Thrive export you get team sheets, lists and WhatsApp messages, but FA registration is not checked.
 2.  Click Reconcile. This compares the two lists and takes a few seconds; a progress window shows each step. \
 Until you do, the tables say "Not reconciled yet". If you choose different files afterwards, Step 2 says \
 "Files changed" until you click Reconcile again.
@@ -427,7 +429,8 @@ class App(tk.Tk):
         self._refresh_mapping_table()
         self._set_exports_enabled(False)
         self._select_view("All players")
-        self.hint_var.set("Start here: choose your FA report and your Thrive export in step 1 "
+        self.hint_var.set("Start here: choose your Thrive export (and the FA report, to check FA registration) "
+                          "in step 1 "
                           "(or click \"Find my latest exports\"), then click Reconcile.")
         self._restore_window()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -504,8 +507,9 @@ class App(tk.Tk):
         files = ttk.LabelFrame(bar, labelwidget=heading, padding=8)
         files.grid(row=0, column=1, sticky="ew")
         files.columnconfigure(1, weight=1)
-        rows = (("FA registration report", self.fa_var, "The Excel report downloaded from the FA player registration "
-                                                      "system (Club - Player Report)."),
+        rows = (("FA report (optional)", self.fa_var, "Optional. The Excel report downloaded from the FA player "
+                                                    "registration system (Club - Player Report). Without it, FA "
+                                                    "registration is not checked."),
                 ("Thrive data export", self.thrive_var, "The Excel data export downloaded from Thrive."),
                 ("Managers file (optional)", self.staff_var, "Optional. An Excel or CSV list of managers, assistant "
                  "managers and their teams. Their names then appear on team sheets and messages. Use Save a "
@@ -743,7 +747,9 @@ class App(tk.Tk):
                  "FA only": "Registered with the FA for this team but not in Thrive.",
                  "Thrive only": "In this team in Thrive but not registered with the FA for it.",
                  rc.NO_FA: "A Thrive group with no FA team, such as U4 to U6 or training. FA registration is "
-                           "not needed; only the Thrive mandate is checked."}[text]
+                           "not needed; only the Thrive mandate is checked.",
+                 rc.FA_NOT_CHECKED: "Thrive-only run: no FA report was chosen, so FA registration was not "
+                                    "checked."}[text]
                 ).pack(side="left", padx=2)
         tip(tk.Label(top, text="  Not paying  ", background=UNPAID_COLOUR, font=("Segoe UI", 10, "bold")
                      if FONT else None),
@@ -986,19 +992,26 @@ class App(tk.Tk):
             self.thrive_var.set(found["thrive"])
         if len(found) == 2:
             self.hint_var.set("Found both files. Check they are the ones you want, then click Reconcile.")
+        elif "thrive" in found:
+            self.hint_var.set(f"Found the Thrive export but no FA report in {folder}. Click Reconcile for a "
+                              "Thrive-only run (FA registration not checked), or use Browse for the FA report.")
         elif found:
-            missing = "Thrive export" if "fa" in found else "FA report"
-            self.hint_var.set(f"Found one file, but no {missing} in {folder}. Use Browse for the other.")
+            self.hint_var.set(f"Found the FA report, but no Thrive export in {folder}. Use Browse for it.")
         else:
             messagebox.showinfo("Find my latest exports",
                                 f"No FA report or Thrive export found in:\n{folder}\n\nUse Browse to choose them.")
 
     def run(self) -> None:
         fa_path, thrive_path = self.fa_var.get().strip(), self.thrive_var.get().strip()
-        if not (os.path.isfile(fa_path) and os.path.isfile(thrive_path)):
+        if not thrive_path and os.path.isfile(fa_path) and rc.detect_kind(fa_path) == "thrive":
+            fa_path, thrive_path = "", fa_path  # a lone Thrive export chosen in the FA box
+            self.fa_var.set("")
+            self.thrive_var.set(thrive_path)
+        if not os.path.isfile(thrive_path) or (fa_path and not os.path.isfile(fa_path)):
             messagebox.showinfo("Choose your files",
-                                "Please choose both files first:\n\n  the FA registration report\n"
-                                "  the Thrive data export\n\nOr click \"Find my latest exports\".")
+                                "Please choose the Thrive data export first. The FA registration report is "
+                                "optional: without it, FA registration is not checked.\n\n"
+                                "Or click \"Find my latest exports\".")
             return
         if self.busy:
             return
@@ -1011,10 +1024,10 @@ class App(tk.Tk):
             try:
                 f, t, swapped = fa_path, thrive_path, False
                 q.put(("step", 0))
-                if (rc.detect_kind(f), rc.detect_kind(t)) == ("thrive", "fa"):
+                if f and (rc.detect_kind(f), rc.detect_kind(t)) == ("thrive", "fa"):
                     f, t, swapped = t, f, True  # chosen the wrong way round
                 q.put(("step", 1))
-                fa_players = rc.load_fa(f)
+                fa_players = rc.load_fa(f) if f else []  # no FA report: a Thrive-only run
                 q.put(("step", 2))
                 missing_items: list = []
                 thrive_players = rc.load_thrive(t, missing_items)
@@ -1131,11 +1144,14 @@ class App(tk.Tk):
         self.run_state_label.configure(style="Hint.TLabel")
         self._set_exports_enabled(True)
         missing = self._unmapped_teams()
-        msg = (f"Compared {len(self.fa_players)} FA players with {len(self.thrive_players)} Thrive players. "
-               "Pick a view on the left of the Results tab. Double-click any row for the full details.")
+        thrive_only = not self.fa_players
+        msg = (f"Thrive only: read {len(self.thrive_players)} Thrive players. FA registration was not checked "
+               "(no FA report chosen). " if thrive_only else
+               f"Compared {len(self.fa_players)} FA players with {len(self.thrive_players)} Thrive players. ") \
+            + "Pick a view on the left of the Results tab. Double-click any row for the full details."
         if added:
             msg += f" {added} new Thrive team(s) were matched automatically."
-        if missing:
+        if missing and not thrive_only:  # a Thrive-only run uses Thrive's own team names
             msg += f" {len(missing)} Thrive team(s) need a decision on the Team mappings tab."
             self.nb.select(self.map_tab)
         items = getattr(self, "missing_items", [])
@@ -1143,7 +1159,8 @@ class App(tk.Tk):
             msg += (" The Thrive export is missing: " + ", ".join(i for i, _u in items)
                     + ". See Help, Getting the exports.")
         self.hint_var.set(msg)
-        self.status_var.set(f"Reconciled at {date.today():%d/%m/%Y}   |   {os.path.basename(fa_path)}   |   "
+        self.status_var.set(f"Reconciled at {date.today():%d/%m/%Y}   |   "
+                            f"{os.path.basename(fa_path) if fa_path else 'Thrive only (no FA report)'}   |   "
                             f"{os.path.basename(thrive_path)}")
         no_mandates = any(i == "Active pre-authorisation" for i, _u in items)
         self.np_warn_var.set(
@@ -1199,10 +1216,12 @@ class App(tk.Tk):
         self.result = result
         counts = self.result.counts()
         attention = sum(n for k, n in counts.items() if rc.LEVELS[k] in ("bad", "warn"))
-        self.summary_var.set(f"{counts.get('Matched', 0)} fully matched   |   {attention} need attention")
+        self.summary_var.set(f"{len(self.result.rows)} Thrive players (FA not checked)   |   "
+                             f"{attention} need attention" if not self.result.fa_checked else
+                             f"{counts.get('Matched', 0)} fully matched   |   {attention} need attention")
         for title, pred in rc.RESULT_TABS:
             n = sum(1 for r in self.result.rows if pred(r))
-            self.view_tree.item(title, text=f"{title}  ({n})")
+            self.view_tree.item(title, text=f"{rc.view_title(title, self.result)}  ({n})")
         self._fill_results()
         all_rows = [[v.strftime("%d/%m/%Y") if isinstance(v, date) else ("" if v is None else v)
                      for v in (getattr(r, a) for _t, a, _w in rc.COLUMNS)] for r in self.result.rows]
@@ -1409,8 +1428,9 @@ class App(tk.Tk):
         self.team_unpaid_label.configure(style="Unpaid.TLabel" if unpaid else "AllPaid.TLabel")
         counts = {k: sum(1 for _, src in rows if src == k) for k in SOURCE_COLOURS}
         people = "   |   ".join(rc.staff_lines(self.result, label))
-        self.team_summary_var.set(f"{len(rows)} players: {counts['Both']} in both, {counts['FA only']} FA only, "
-                                  f"{counts['Thrive only']} Thrive only"
+        self.team_summary_var.set((f"{len(rows)} players in Thrive (FA not checked)" if not self.result.fa_checked
+                                   else f"{len(rows)} players: {counts['Both']} in both, "
+                                        f"{counts['FA only']} FA only, {counts['Thrive only']} Thrive only")
                                   + (f", {counts[rc.NO_FA]} no FA needed" if counts[rc.NO_FA] else "")
                                   + (f"   |   {people}" if people else ""))
 

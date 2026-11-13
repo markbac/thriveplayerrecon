@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.7.1';
+export const VERSION = '1.8.0';
 // Stamped by Vite at build time (vite.config.ts), in UK time, so it never needs editing by hand.
 declare const __BUILD_DATETIME__: string | undefined;
 export const BUILD_DATETIME: string =
@@ -13,6 +13,10 @@ export const BUILD_DATETIME: string =
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
 export const NO_FA = 'No FA needed';
+/** Thrive-only run: no FA report was loaded, so FA registration is unknown. */
+export const FA_NOT_CHECKED = 'FA not checked';
+/** Results views that compare against the FA report, so are not checked in a Thrive-only run. */
+export const FA_VIEWS = ['In Thrive, not in FA', 'In FA, not in Thrive', 'Check match', 'Team differs'];
 
 export const CLUB = 'Wilpshire Wanderers ';
 
@@ -196,6 +200,8 @@ export const LEVELS: Record<string, Level> = {
   'FA only': 'bad',
   'Thrive only (expected)': 'info',
   'FA only (not registered)': 'info',
+  [FA_NOT_CHECKED]: 'ok',
+  [FA_NOT_CHECKED + ' (data quality)']: 'warn',
 };
 
 const LEVEL_ORDER: Record<Level, number> = { bad: 0, warn: 1, info: 2, ok: 3 };
@@ -411,19 +417,23 @@ export class Result {
   teams: Record<string, Array<[string, Row]>>;
   staff: Record<string, Staff[]>;
   staff_issues: string[];
+  /** False for a Thrive-only run (no FA report). */
+  fa_checked: boolean;
 
   constructor(
     rows: Row[],
     club_prefix: string,
     teams: Record<string, Array<[string, Row]>> = {},
     staff: Record<string, Staff[]> = {},
-    staff_issues: string[] = []
+    staff_issues: string[] = [],
+    fa_checked = true
   ) {
     this.rows = rows;
     this.club_prefix = club_prefix;
     this.teams = teams;
     this.staff = staff;
     this.staff_issues = staff_issues;
+    this.fa_checked = fa_checked;
   }
 
   counts(): Record<string, number> {
@@ -1029,6 +1039,78 @@ function lastWordLower(s: string): string {
   return parts.length > 0 ? parts[parts.length - 1].toLowerCase() : '';
 }
 
+/** Thrive-only run (no FA report): teams are Thrive's own team names and FA registration is not
+ * checked. Thrive data checks (DOB, duplicates, capitalisation, age for the team) still run. */
+function _thrive_only_result(
+  thrive: ThrivePlayer[],
+  lookup: Map<string, string | null>,
+  dup_notes: Map<number, string>,
+  thrive_flags: (t: ThrivePlayer) => string[],
+  season_ref: LocalDate
+): Result {
+  const isIgnored = (name: string) => {
+    const k = _tkey(name);
+    return lookup.has(k) && lookup.get(k) === IGNORE;
+  };
+  const rows: Row[] = [];
+  thrive.forEach((t, ti) => {
+    const dq = thrive_flags(t);
+    const dup = dup_notes.get(ti);
+    if (dup) dq.push(dup);
+    if (t.dob) {
+      const age = _age_on(t.dob, season_ref);
+      for (const name of t.teams) {
+        // groups with no FA team (U4-U6, training) have no age limit, as in a full run
+        const limit = isIgnored(name) ? null : _team_age_limit(name);
+        if (limit !== null && age >= limit) {
+          dq.push(`Thrive DOB gives age ${age} at ${formatDate(season_ref)}, too old for ${name}`);
+        }
+      }
+    }
+    const noFaTeam = t.teams.length > 0 && t.teams.every(isIgnored);
+    let result: string;
+    let issue: string;
+    if (noFaTeam) {
+      result = 'Thrive only (expected)';
+      issue = 'Only in teams with no FA equivalent';
+    } else {
+      result = FA_NOT_CHECKED + (dq.length ? ' (data quality)' : '');
+      issue = t.teams.length ? '' : 'Has no team in Thrive';
+    }
+    rows.push(
+      new Row(result, '', issue, dq.join('; '), '', '', `${t.first} ${t.last}`, null, t.dob,
+        '', t.teams.join(', '), '', '', t.mandate, null, t)
+    );
+  });
+  rows.sort((a, b) => {
+    const la = LEVEL_ORDER[a.level];
+    const lb = LEVEL_ORDER[b.level];
+    if (la !== lb) return la - lb;
+    if (a.result !== b.result) return a.result < b.result ? -1 : 1;
+    const sa = lastWordLower(a.thrive_name);
+    const sb = lastWordLower(b.thrive_name);
+    return sa < sb ? -1 : sa > sb ? 1 : 0;
+  });
+  const teams: Record<string, Array<[string, Row]>> = {};
+  for (const row of rows) {
+    for (const name of row.th ? row.th.teams : []) {
+      if (!teams[name]) teams[name] = [];
+      teams[name].push([isIgnored(name) ? NO_FA : FA_NOT_CHECKED, row]);
+    }
+  }
+  for (const members of Object.values(teams)) {
+    members.sort((a, b) => {
+      const sa = lastWordLower(a[1].thrive_name);
+      const sb = lastWordLower(b[1].thrive_name);
+      if (sa !== sb) return sa < sb ? -1 : 1;
+      const la = a[1].thrive_name.toLowerCase();
+      const lb = b[1].thrive_name.toLowerCase();
+      return la < lb ? -1 : la > lb ? 1 : 0;
+    });
+  }
+  return new Result(rows, '', teams, {}, [], false);
+}
+
 export function reconcile(
   fa: FAPlayer[],
   thrive: ThrivePlayer[],
@@ -1124,6 +1206,10 @@ export function reconcile(
         dup_notes.set(j, `Possible duplicate Thrive record: ${a_.first} ${a_.last}`);
       }
     }
+  }
+
+  if (fa.length === 0) {
+    return _thrive_only_result(thrive, lookup, dup_notes, thrive_flags, season_ref);
   }
 
   for (let ti = 0; ti < thrive.length; ti++) {
@@ -1380,6 +1466,13 @@ export function reconcile(
 
 // --------------------------------------------------------------------------- reports
 
+/** Results view name, marked as not checked for FA comparisons in a Thrive-only run. */
+export function view_title(title: string, result: Result | null): string {
+  return result !== null && !result.fa_checked && FA_VIEWS.includes(title)
+    ? `${title} (FA not checked)`
+    : title;
+}
+
 export const RESULT_TABS: Array<[string, (r: Row) => boolean]> = [
   ['All players', () => true],
   ['Needs attention', (r) => r.level === 'bad' || r.level === 'warn'],
@@ -1396,6 +1489,7 @@ export const SOURCE_FILLS: Record<string, string> = {
   'FA only': 'FCE4D6',
   'Thrive only': 'DDEBF7',
   [NO_FA]: 'EDEDED',
+  [FA_NOT_CHECKED]: 'DDEBF7',
 };
 
 export const CONFIDENTIAL =
@@ -1435,11 +1529,13 @@ export function _meaningful(value: string): boolean {
 export function _source(row: Row): string {
   if (row.fa && row.th) return 'Both';
   if (row.fa) return 'FA only';
-  return row.result === 'Thrive only (expected)' ? NO_FA : 'Thrive only';
+  if (row.result === 'Thrive only (expected)') return NO_FA;
+  return row.result.startsWith(FA_NOT_CHECKED) ? FA_NOT_CHECKED : 'Thrive only';
 }
 
 export function _fa_mark(source: string): string {
   if (source === NO_FA) return 'FA not needed';
+  if (source === FA_NOT_CHECKED) return 'FA not checked';
   return 'FA ' + (source === 'Both' || source === 'FA only' ? '✅' : '❌');
 }
 

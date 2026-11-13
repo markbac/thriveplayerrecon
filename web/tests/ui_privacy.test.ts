@@ -48,7 +48,7 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
     const app = new WebApp(root, storage);
 
     // Initially shows "Not reconciled yet" placeholder and version
-    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.7.1');
+    expect(root.querySelector('#version-badge')?.textContent).toBe('v1.8.0');
     expect(root.querySelector('#build-date-badge')?.textContent).toContain('Created ');
     expect((root.querySelector('#placeholder-results') as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#run-state-label')?.textContent).toBe('Not run yet');
@@ -127,6 +127,37 @@ describe('Web App Privacy Baseline (#14) and UI Screens (#18-#24)', () => {
 
     document.body.removeChild(root);
     vi.unstubAllGlobals();
+  });
+
+  it('runs Thrive only (no FA report) and links to the Windows app', async () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const app = new WebApp(root, makeMockStorage());
+    const winLink = root.querySelector('#nav-windows-app') as HTMLAnchorElement;
+    expect(winLink.getAttribute('href')).toBe(
+      'https://github.com/markbac/thriveplayerrecon/releases/latest'
+    );
+    expect(winLink.getAttribute('rel')).toContain('noopener');
+
+    const thBytes = await createThriveBuffer();
+    // a lone Thrive export in the FA box is moved to the Thrive box
+    app.setChosenFilesForTest({ name: 'thrive.xlsx', buffer: thBytes.buffer as ArrayBuffer }, null);
+    await app.runReconcile();
+    expect(app.faFile).toBeNull();
+    expect(app.thriveFile?.name).toBe('thrive.xlsx');
+    expect(root.querySelector('#results-summary-stats')?.textContent).toContain('FA not checked');
+    expect(root.querySelector('#view-list-container')?.textContent).toContain(
+      'Check match (FA not checked)'
+    );
+
+    app.switchTab('teams');
+    const selectTeam = root.querySelector('#select-team') as HTMLSelectElement;
+    expect(Array.from(selectTeam.options).some((o) => o.value === 'U11 White')).toBe(true);
+    selectTeam.value = 'U11 White';
+    selectTeam.dispatchEvent(new Event('change'));
+    expect(root.querySelector('#team-summary-text')?.textContent).toContain('FA not checked');
+
+    document.body.removeChild(root);
   });
 
   it('shows the missing mandate column warning on Not paying when Active mandates is absent (#15, #21)', async () => {

@@ -93,6 +93,9 @@ function loadExcelIo(): Promise<typeof import('./excel_io')> {
 /** Error the background worker reported about the files themselves (not a worker start-up failure). */
 class WorkerReportedError extends Error {}
 
+/** Latest GitHub release, where the Windows app (.exe) can be downloaded. */
+export const WINDOWS_APP_URL = 'https://github.com/markbac/thriveplayerrecon/releases/latest';
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -201,6 +204,7 @@ export class WebApp {
           <button type="button" id="nav-help-exports">Getting the exports</button>
           <button type="button" id="nav-help-privacy">Data protection</button>
           <a href="./PlayerReconcile-web-offline.zip" download="PlayerReconcile-web-offline.zip" class="nav-download-link" id="nav-offline-zip" title="Download the web app as a zip to run locally offline">Download offline copy (.zip)</a>
+          <a href="${WINDOWS_APP_URL}" target="_blank" rel="noopener noreferrer" class="nav-download-link" id="nav-windows-app" title="Opens the latest release on GitHub. Download the PlayerReconcile .exe file there to run the Windows app">Download Windows app</a>
           <button type="button" id="nav-about">About</button>
         </nav>
       </header>
@@ -227,7 +231,7 @@ export class WebApp {
           </div>
           <div class="file-rows">
             <div class="file-drop-row" id="drop-fa">
-              <label for="input-fa">FA registration report</label>
+              <label for="input-fa">FA registration report (optional)</label>
               <div class="file-status-box" id="status-fa" aria-live="polite">No file chosen (tap or drop .xlsx)</div>
               <input type="file" id="input-fa" accept=".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroenabled.12,text/csv,text/comma-separated-values,text/plain,application/zip,application/octet-stream" hidden />
               <button type="button" id="browse-fa">Browse...</button>
@@ -283,7 +287,7 @@ export class WebApp {
       </section>
 
       <div class="hint-banner" id="hint-banner" role="status" aria-live="polite">
-        Start here: choose your FA report and your Thrive export in Step 1, then click Reconcile.
+        Start here: choose your Thrive export (and the FA report, to check FA registration) in Step 1, then click Reconcile.
       </div>
 
       <!-- Main Tabs -->
@@ -806,11 +810,10 @@ export class WebApp {
         (e.ctrlKey || e.metaKey) &&
         !e.shiftKey &&
         e.key.toLowerCase() === 'r' &&
-        this.faFile &&
         this.thriveFile &&
         !isEditableTarget(e.target)
       ) {
-        // Ctrl+R reconciles once both files are chosen (reloading would lose them).
+        // Ctrl+R reconciles once the Thrive export is chosen (reloading would lose it).
         // Before that, or while typing, the browser's normal reload is left alone.
         e.preventDefault();
         void this.runReconcile();
@@ -1004,10 +1007,10 @@ export class WebApp {
   // ------------------------------------------------------------------ Reconcile (#18)
 
   public async runReconcile(): Promise<void> {
-    if (!this.faFile || !this.thriveFile) {
+    if (!this.faFile && !this.thriveFile) {
       this.showMessageModal(
         'Choose your files',
-        'Please choose both files first:\n\n  • the FA registration report\n  • the Thrive data export'
+        'Please choose the Thrive data export first. The FA registration report is optional: without it, FA registration is not checked.'
       );
       return;
     }
@@ -1016,10 +1019,10 @@ export class WebApp {
     this.openProgressModal();
 
     const input: ReconcileInput = {
-      faBuffer: this.faFile.buffer,
-      faName: this.faFile.name,
-      thriveBuffer: this.thriveFile.buffer,
-      thriveName: this.thriveFile.name,
+      faBuffer: this.faFile?.buffer ?? null,
+      faName: this.faFile?.name ?? '',
+      thriveBuffer: this.thriveFile?.buffer ?? null,
+      thriveName: this.thriveFile?.name ?? '',
       staffBuffer: this.staffFile?.buffer ?? null,
       staffName: this.staffFile?.name ?? '',
     };
@@ -1204,11 +1207,17 @@ export class WebApp {
     }
 
     const unmapped = this.unmappedTeams();
-    let msg = `Compared ${this.faPlayers?.length || 0} FA players with ${this.thrivePlayers?.length || 0} Thrive players. Pick a view on the left of the Results tab. Click any row for the full details.`;
-    if (addedCount > 0) {
+    const thriveOnly = !this.faPlayers || this.faPlayers.length === 0;
+    let msg =
+      (thriveOnly
+        ? `Thrive only: read ${this.thrivePlayers?.length || 0} Thrive players. FA registration was not checked (no FA report chosen). `
+        : `Compared ${this.faPlayers?.length || 0} FA players with ${this.thrivePlayers?.length || 0} Thrive players. `) +
+      'Pick a view on the left of the Results tab. Click any row for the full details.';
+    if (addedCount > 0 && !thriveOnly) {
       msg += ` ${addedCount} new Thrive team(s) were matched automatically.`;
     }
-    if (unmapped.length > 0) {
+    if (unmapped.length > 0 && !thriveOnly) {
+      // a Thrive-only run uses Thrive's own team names, so no mapping is needed
       msg += ` ${unmapped.length} Thrive team(s) need a decision on the Team mappings tab.`;
       this.switchTab('mappings');
     }
@@ -1222,11 +1231,13 @@ export class WebApp {
 
     const todayStr = rc.formatDate(rc.todayLocalDate());
     this.setStatus(
-      `Reconciled at ${todayStr}   |   ${this.faFile?.name || ''}   |   ${this.thriveFile?.name || ''}`
+      `Reconciled at ${todayStr}   |   ${this.faFile?.name || 'Thrive only (no FA report)'}   |   ${this.thriveFile?.name || ''}`
     );
 
     const notices: string[] = [];
-    if (loaded.swapped) {
+    if (loaded.swapped && thriveOnly) {
+      notices.push('The Thrive export was in the FA box, so it was moved to the Thrive box.');
+    } else if (loaded.swapped) {
       notices.push('The two files were in the wrong boxes, so they were swapped automatically.');
     }
     if (loaded.staffError) {
@@ -1270,7 +1281,9 @@ export class WebApp {
         .filter(([k]) => rc.LEVELS[k] === 'bad' || rc.LEVELS[k] === 'warn')
         .reduce((acc, [, n]) => acc + n, 0);
       const statsEl = this.root.querySelector('#results-summary-stats') as HTMLElement;
-      statsEl.textContent = `${counts['Matched'] || 0} fully matched   |   ${attention} need attention`;
+      statsEl.textContent = this.result.fa_checked
+        ? `${counts['Matched'] || 0} fully matched   |   ${attention} need attention`
+        : `${this.result.rows.length} Thrive players (FA not checked)   |   ${attention} need attention`;
     } else {
       (this.root.querySelector('#results-summary-stats') as HTMLElement).textContent = '';
     }
@@ -1292,7 +1305,8 @@ export class WebApp {
         btn.setAttribute('aria-current', String(title === this.currentView));
 
         const labelSpan = document.createElement('span');
-        labelSpan.textContent = title;
+        const shownTitle = rc.view_title(title, this.result);
+        labelSpan.textContent = shownTitle;
         btn.appendChild(labelSpan);
 
         if (this.result) {
@@ -1311,11 +1325,11 @@ export class WebApp {
 
         const opt = document.createElement('option');
         opt.value = title;
-        opt.textContent = this.result ? `${title} (${count})` : title;
+        opt.textContent = this.result ? `${shownTitle} (${count})` : shownTitle;
         optGroup.appendChild(opt);
 
         if (title === this.currentView) {
-          (this.root.querySelector('#results-view-title') as HTMLElement).textContent = title;
+          (this.root.querySelector('#results-view-title') as HTMLElement).textContent = shownTitle;
           (this.root.querySelector('#results-view-desc') as HTMLElement).textContent = desc;
         }
       }
@@ -1531,8 +1545,10 @@ export class WebApp {
 
     const staffStr = rc.staff_lines(this.result, label).join('   |   ');
     summaryText.textContent =
-      `${rawRows.length} players: ${sourceCounts['Both']} in both, ${sourceCounts['FA only']} FA only, ${sourceCounts['Thrive only']} Thrive only` +
-      (sourceCounts[rc.NO_FA] ? `, ${sourceCounts[rc.NO_FA]} no FA needed` : '') +
+      (this.result.fa_checked
+        ? `${rawRows.length} players: ${sourceCounts['Both']} in both, ${sourceCounts['FA only']} FA only, ${sourceCounts['Thrive only']} Thrive only` +
+          (sourceCounts[rc.NO_FA] ? `, ${sourceCounts[rc.NO_FA]} no FA needed` : '')
+        : `${rawRows.length} players in Thrive (FA not checked)`) +
       (staffStr ? `   |   ${staffStr}` : '');
 
     let filtered = items;
@@ -1564,7 +1580,7 @@ export class WebApp {
         classes.push('source-both');
       } else if (item.source === 'FA only') {
         classes.push('source-fa');
-      } else if (item.source === 'Thrive only') {
+      } else if (item.source === 'Thrive only' || item.source === rc.FA_NOT_CHECKED) {
         classes.push('source-thrive');
       } else {
         classes.push('source-nofa');

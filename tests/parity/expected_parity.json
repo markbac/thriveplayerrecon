@@ -859,5 +859,283 @@
   },
   "whatsapp_not_paying_all": [
     "Hi, the following player(s) are currently showing as not paying fees in Thrive. Please pass the links and instructions below on to their parents to get this set up:\n\n*Currently not paying fees*\n3 player(s)\nUpdated 11/11/2026\n\n*U05 (Thrive)*\n*Tia Tiny* (U05 (Thrive))\n   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*\n\n*U11 White*\n*Ben Bold* (U11 White)\n   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*\n\n*U12 Black*\n*Dan Dee* (U12 Black)\n   ❌ *NOT SIGNED UP IN THRIVE (NO MEMBERSHIP)*\n   ❌ *NO ACTIVE DIRECT DEBIT MANDATE SET UP*\n\n*Buy membership (if not in Thrive):*\nhttps://book.thrive4.com/#/app/joinin/organisation/shop/a8b9edae-1af1-4df8-afe5-73e73f066998\n\n*How to set up a Direct Debit mandate:*\n1. Go to the Member Portal: https://member.thrive4.com/\n2. Log in: If prompted, sign in with your Thrive4 MemberHub credentials (your existing LoveAdmin login) to reach the Dashboard.\n3. Open Account, then Settings: In the left-hand menu, click \"Account\" to expand it, then select \"Settings\".\n4. Open Payment Settings: On the Settings page, click \"Payment Settings\".\n5. Set up the mandate: Under Mandates, click \"Set up\". Follow the on-screen prompts to enter your bank details."
-  ]
+  ],
+  "thrive_only": {
+    "fa_checked": false,
+    "counts": {
+      "FA not checked (data quality)": 3,
+      "Thrive only (expected)": 1,
+      "FA not checked": 11
+    },
+    "team_labels": [
+      "U05",
+      "U10 Blue",
+      "U11 Black",
+      "U11 White",
+      "U12 Black"
+    ],
+    "views": [
+      "All players",
+      "Needs attention",
+      "In Thrive, not in FA (FA not checked)",
+      "No FA team (U4-U6, training)",
+      "In FA, not in Thrive (FA not checked)",
+      "Check match (FA not checked)",
+      "Team differs (FA not checked)",
+      "Data quality"
+    ],
+    "rows": [
+      [
+        "FA not checked (data quality)",
+        "warn",
+        "",
+        "Thrive DOB gives age 41: parent/carer details entered instead of the player's?; Thrive name capitalisation: 'noah brown'; Thrive DOB gives age 41 at 31/08/2026, too old for U12 Black",
+        "noah brown",
+        "U12 Black",
+        "Yes"
+      ],
+      [
+        "FA not checked (data quality)",
+        "warn",
+        "",
+        "Possible duplicate Thrive record: Mia Moore",
+        "Mia Moore",
+        "U11 White",
+        "Yes"
+      ],
+      [
+        "FA not checked (data quality)",
+        "warn",
+        "",
+        "Possible duplicate Thrive record: Mia Moore",
+        "Mia Moore",
+        "U11 White",
+        "Yes"
+      ],
+      [
+        "Thrive only (expected)",
+        "info",
+        "Only in teams with no FA equivalent",
+        "",
+        "Tia Tiny",
+        "U05",
+        "No: no active mandate"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Amy Able",
+        "U11 White",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Pat Able",
+        "U11 White",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Liam Adamos Beswick",
+        "U10 Blue",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Ben Bold",
+        "U11 White",
+        "No: no active mandate"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Cal Cole",
+        "U12 Black",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Eve East",
+        "U11 White",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Jack Jones",
+        "U11 Black",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Wilson Oliver",
+        "U11 White",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Samuel Smith",
+        "U11 White",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Teddy Taylor",
+        "U10 Blue",
+        "Yes"
+      ],
+      [
+        "FA not checked",
+        "ok",
+        "",
+        "",
+        "Harry Walked",
+        "U10 Blue",
+        "Yes"
+      ]
+    ],
+    "teams": {
+      "U12 Black": [
+        [
+          "FA not checked",
+          "noah brown"
+        ],
+        [
+          "FA not checked",
+          "Cal Cole"
+        ]
+      ],
+      "U11 White": [
+        [
+          "FA not checked",
+          "Amy Able"
+        ],
+        [
+          "FA not checked",
+          "Pat Able"
+        ],
+        [
+          "FA not checked",
+          "Ben Bold"
+        ],
+        [
+          "FA not checked",
+          "Eve East"
+        ],
+        [
+          "FA not checked",
+          "Mia Moore"
+        ],
+        [
+          "FA not checked",
+          "Mia Moore"
+        ],
+        [
+          "FA not checked",
+          "Wilson Oliver"
+        ],
+        [
+          "FA not checked",
+          "Samuel Smith"
+        ]
+      ],
+      "U05": [
+        [
+          "No FA needed",
+          "Tia Tiny"
+        ]
+      ],
+      "U10 Blue": [
+        [
+          "FA not checked",
+          "Liam Adamos Beswick"
+        ],
+        [
+          "FA not checked",
+          "Teddy Taylor"
+        ],
+        [
+          "FA not checked",
+          "Harry Walked"
+        ]
+      ],
+      "U11 Black": [
+        [
+          "FA not checked",
+          "Jack Jones"
+        ]
+      ]
+    },
+    "not_paying": [
+      [
+        [
+          "Ben Bold",
+          "01/03/2016",
+          10,
+          "U11 White",
+          "No active mandate in Thrive",
+          "FA not checked",
+          "Pat Bold",
+          "07700900123",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "FA not checked"
+      ],
+      [
+        [
+          "Tia Tiny",
+          "07/07/2022",
+          4,
+          "U05",
+          "No active mandate in Thrive",
+          "No FA needed",
+          "Pat Tiny",
+          "07700900123",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "No FA needed"
+      ]
+    ],
+    "whatsapp_squad": [
+      "*U11 White* squad (8 players)\nUpdated 11/11/2026\n\n*Amy Able* (10)\nFA not checked  Thrive ✅  Direct debit ✅\nContact: Pat Able 07700 900123\n\n*Pat Able* (10)\nFA not checked  Thrive ✅  Direct debit ✅\nContact: Pat Able 07700 900123\n\n*Ben Bold* (10)\nFA not checked  Thrive ✅  Direct debit ❌\nContact: Pat Bold 07700 900123\n📷 *No photography consent*: do not photograph\n\n*Eve East* (10)\nFA not checked  Thrive ✅  Direct debit ✅\nContact: Pat East 07700 900123\n\n*Mia Moore* (10)\nFA not checked  Thrive ✅  Direct debit ✅\nContact: Pat Moore 07700 900123\n\n*Mia Moore* (10)\nFA not checked  Thrive ✅  Direct debit ✅\nContact: Pat Moore 07700 900123\n\n*Wilson Oliver* (10)\nFA not checked  Thrive ✅  Direct debit ✅\nContact: Pat Oliver 07700 900123\n\n*Samuel Smith* (10)\nFA not checked  Thrive ✅  Direct debit ✅\nContact: Pat Smith 07700 900123\n\n_Data protection: this message contains personal data about children (UK GDPR). Use it only to run the team, do not forward or share it, keep it secure and delete it when no longer needed._"
+    ],
+    "whatsapp_squad_list": "*U11 White* squad in Thrive (8 players)\nGenerated 11/11/2026 10:42\n\n👍 Wilson Oliver, 20/01/2016 (10y 9m)\n👍 Amy Able, 01/02/2016 (10y 9m)\n👎 Ben Bold, 01/03/2016 (10y 8m)\n👍 Mia Moore, 04/04/2016 (10y 7m)\n👍 Mia Moore, 04/04/2016 (10y 7m)\n👍 Samuel Smith, 05/05/2016 (10y 6m)\n👍 Eve East, 06/06/2016 (10y 5m)\n👍 Pat Able, 01/08/2016 (10y 3m)\n\nDirect debit: 7 active, 1 without\n\n👍 = active Thrive direct debit (mandate)\n👎 = no active direct debit\n\n_Data protection: contains personal data about children (UK GDPR). Do not forward; delete when no longer needed._"
+  }
 }

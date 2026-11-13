@@ -153,3 +153,21 @@ def test_unpaid_counts_and_send_to_manager_on_whatsapp(app_factory, fa_path, thr
     send[0].invoke()
     assert opened and opened[0].startswith("https://wa.me/447700900010?text=")
     win.destroy()
+
+
+def test_thrive_only_run(app_factory, thrive_path):
+    a = app_factory()
+    reconcile_in_app(a, "", thrive_path)
+    assert a.result.fa_checked is False
+    assert "FA not checked" in a.summary_var.get()
+    assert "Thrive only" in a.hint_var.get() and "Thrive only (no FA report)" in a.status_var.get()
+    assert "(FA not checked)" in a.view_tree.item("Check match", "text")
+    a.nb.select(a.team_tab)
+    a.team_var.set(next(v for v in a.team_box["values"] if "U11 White" in v)); a._fill_team_tab(); a.update()
+    assert "FA not checked" in a.team_summary_var.get()
+
+
+def test_lone_thrive_file_in_fa_box_is_moved(app_factory, thrive_path):
+    a = app_factory()
+    reconcile_in_app(a, thrive_path, "")
+    assert a.fa_var.get() == "" and a.thrive_var.get() == thrive_path and a.result.fa_checked is False

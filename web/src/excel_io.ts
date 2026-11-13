@@ -324,7 +324,8 @@ function teamTitle(
     `Generated ${formatNow()}`,
     `${rows.length} players   |   Both: ${counts['Both']}   FA only: ${counts['FA only']}   ` +
       `Thrive only: ${counts['Thrive only']}` +
-      (counts[rc.NO_FA] ? `   No FA needed: ${counts[rc.NO_FA]}` : ''),
+      (counts[rc.NO_FA] ? `   No FA needed: ${counts[rc.NO_FA]}` : '') +
+      (counts[rc.FA_NOT_CHECKED] ? `   FA not checked: ${counts[rc.FA_NOT_CHECKED]}` : ''),
     'Colour key: green = in both FA and Thrive, orange = FA only, blue = Thrive only, ' +
       'grey = Thrive group with no FA team (only the mandate is checked)',
     rc.CONFIDENTIAL,
