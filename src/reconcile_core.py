@@ -31,6 +31,9 @@ from version import __version__
 IGNORE = None  # mapping value meaning "this Thrive team has no FA equivalent"
 # Team-sheet source for players in such a team (U4-U6, training groups): FA registration is not needed
 NO_FA = "No FA needed"
+FA_NOT_CHECKED = "FA not checked"  # Thrive-only run: no FA report was loaded, so FA registration is unknown
+# Results views that compare against the FA report, so are not checked in a Thrive-only run
+FA_VIEWS = ("In Thrive, not in FA", "In FA, not in Thrive", "Check match", "Team differs")
 
 # Default Thrive team -> FA team mapping, derived from the first pair of exports.
 # Thrive values on the left, FA team names on the right, None = ignore.
@@ -139,6 +142,8 @@ LEVELS = {  # result -> level (bad > warn > info > ok)
     "FA only": "bad",
     "Thrive only (expected)": "info",
     "FA only (not registered)": "info",
+    FA_NOT_CHECKED: "ok",
+    FA_NOT_CHECKED + " (data quality)": "warn",
 }
 _LEVEL_ORDER = {"bad": 0, "warn": 1, "info": 2, "ok": 3}
 
@@ -224,6 +229,7 @@ class Result:
     # team label -> staff assigned, and notes about the managers file (set by attach_staff)
     staff: Dict[str, List[Staff]] = field(default_factory=dict)
     staff_issues: List[str] = field(default_factory=list)
+    fa_checked: bool = True  # False for a Thrive-only run (no FA report)
 
     def counts(self) -> Counter:
         return Counter(r.result for r in self.rows)
@@ -609,6 +615,42 @@ def _fmt_date(d: Optional[date]) -> str:
     return d.strftime("%d/%m/%Y") if d else "none"
 
 
+def _thrive_only_result(thrive: List[ThrivePlayer], lookup, dup_notes: Dict[int, str], thrive_flags,
+                        season_ref: date) -> Result:
+    """Thrive-only run (no FA report): teams are Thrive's own team names and FA registration is not
+    checked. Thrive data checks (DOB, duplicates, capitalisation, age for the team) still run."""
+    rows: List[Row] = []
+    for ti, t in enumerate(thrive):
+        dq = thrive_flags(t)
+        if ti in dup_notes:
+            dq.append(dup_notes[ti])
+        if t.dob is not None:
+            age = _age_on(t.dob, season_ref)
+            for name in t.teams:  # groups with no FA team (U4-U6, training) have no age limit, as in a full run
+                limit = None if lookup.get(_tkey(name), "") is IGNORE else _team_age_limit(name)
+                if limit is not None and age >= limit:
+                    dq.append(f"Thrive DOB gives age {age} at {season_ref:%d/%m/%Y}, too old for {name}")
+        no_fa_team = bool(t.teams) and all(lookup.get(_tkey(n), "") is IGNORE for n in t.teams)
+        if no_fa_team:
+            result, issue = "Thrive only (expected)", "Only in teams with no FA equivalent"
+        else:
+            result = FA_NOT_CHECKED + (" (data quality)" if dq else "")
+            issue = "" if t.teams else "Has no team in Thrive"
+        rows.append(Row(result, "", issue, "; ".join(dq), "", "", f"{t.first} {t.last}", None, t.dob,
+                        "", ", ".join(t.teams), "", "", t.mandate, None, t))
+    rows.sort(key=lambda r: (_LEVEL_ORDER[r.level], r.result, r.thrive_name.split()[-1].lower()
+                             if r.thrive_name.split() else ""))
+    teams: Dict[str, List[Tuple[str, Row]]] = {}
+    for row in rows:
+        for name in row.th.teams:
+            source = NO_FA if lookup.get(_tkey(name), "") is IGNORE else FA_NOT_CHECKED
+            teams.setdefault(name, []).append((source, row))
+    for members in teams.values():
+        members.sort(key=lambda m: (m[1].thrive_name.split()[-1].lower() if m[1].thrive_name.split() else "",
+                                    m[1].thrive_name.lower()))
+    return Result(rows, "", teams, fa_checked=False)
+
+
 def reconcile(fa: List[FAPlayer], thrive: List[ThrivePlayer],
               team_map: Dict[str, Optional[str]], fuzzy: float = DEFAULT_FUZZY,
               today: Optional[date] = None) -> Result:
@@ -666,6 +708,9 @@ def reconcile(fa: List[FAPlayer], thrive: List[ThrivePlayer],
                     and _name_score(a_.last, b_.last, True, fuzzy):
                 dup_notes[i] = f"Possible duplicate Thrive record: {b_.first} {b_.last}"
                 dup_notes[j] = f"Possible duplicate Thrive record: {a_.first} {a_.last}"
+
+    if not fa:
+        return _thrive_only_result(thrive, lookup, dup_notes, thrive_flags, season_ref)
 
     for ti, t in enumerate(thrive):
         expected, unmapped = expected_for(t)
@@ -785,6 +830,11 @@ def reconcile(fa: List[FAPlayer], thrive: List[ThrivePlayer],
 # --------------------------------------------------------------------------- reports
 
 # (tab title, which rows it shows) -- shared by the GUI tabs and the Excel export
+def view_title(title: str, result: Optional[Result]) -> str:
+    """Results view name, marked as not checked for FA comparisons in a Thrive-only run."""
+    return f"{title} (FA not checked)" if result is not None and not result.fa_checked and title in FA_VIEWS         else title
+
+
 RESULT_TABS = [
     ("All players", lambda r: True),
     ("Needs attention", lambda r: r.level in ("bad", "warn")),
@@ -796,7 +846,8 @@ RESULT_TABS = [
     ("Data quality", lambda r: bool(r.dq)),
 ]
 
-SOURCE_FILLS = {"Both": "E2F0D9", "FA only": "FCE4D6", "Thrive only": "DDEBF7", NO_FA: "EDEDED"}
+SOURCE_FILLS = {"Both": "E2F0D9", "FA only": "FCE4D6", "Thrive only": "DDEBF7", NO_FA: "EDEDED",
+                FA_NOT_CHECKED: "DDEBF7"}
 CONFIDENTIAL = ("CONFIDENTIAL: contains children's personal data protected by UK GDPR. Share only with those who "
                 "need it, keep it secure and delete it when finished.")
 
@@ -819,13 +870,17 @@ def _source(row: Row) -> str:
         return "Both"
     if row.fa:
         return "FA only"
-    return NO_FA if row.result == "Thrive only (expected)" else "Thrive only"
+    if row.result == "Thrive only (expected)":
+        return NO_FA
+    return FA_NOT_CHECKED if row.result.startswith(FA_NOT_CHECKED) else "Thrive only"
 
 
 def _fa_mark(source: str) -> str:
     """WhatsApp FA status: tick, cross, or 'not needed' for groups with no FA team."""
     if source == NO_FA:
         return "FA not needed"
+    if source == FA_NOT_CHECKED:
+        return "FA not checked"
     return "FA " + ("✅" if source in ("Both", "FA only") else "❌")
 
 
@@ -1519,7 +1574,8 @@ def _team_title(label, rows, staff=()):
     counts = Counter(src for _, src in rows)
     return [f"Team: {label}", *staff, f"Generated {datetime.now():%d/%m/%Y %H:%M}",
             f"{len(rows)} players   |   Both: {counts['Both']}   FA only: {counts['FA only']}   "
-            f"Thrive only: {counts['Thrive only']}" + (f"   No FA needed: {counts[NO_FA]}" if counts[NO_FA] else ""),
+            f"Thrive only: {counts['Thrive only']}" + (f"   No FA needed: {counts[NO_FA]}" if counts[NO_FA] else "")
+            + (f"   FA not checked: {counts[FA_NOT_CHECKED]}" if counts[FA_NOT_CHECKED] else ""),
             "Colour key: green = in both FA and Thrive, orange = FA only, blue = Thrive only, "
             "grey = Thrive group with no FA team (only the mandate is checked)", CONFIDENTIAL]
 

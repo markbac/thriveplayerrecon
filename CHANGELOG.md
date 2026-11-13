@@ -4,6 +4,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-13
+
+### Added
+- **Thrive only (no FA report)** runs (web and desktop apps): the FA report is now optional. With only the Thrive export you get team sheets, the Squad list, Copy for WhatsApp, Not paying, medical and consents lists, manager contacts and the Thrive data checks. Teams use Thrive's own team names, so no team mappings are needed. FA comparisons are marked **FA not checked** rather than flagging every player as missing from the FA. A lone Thrive export chosen in the FA box is moved to the Thrive box
+- Web app: **Download Windows app** link in the top bar, opening the latest GitHub release where the `.exe` can be downloaded
+
+### Changed
+- Web app: the top bar stays at the top while scrolling, so Help, About and the downloads are always reachable
+
 ## [1.7.1] - 2026-11-13
 
 ### Fixed

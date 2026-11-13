@@ -142,10 +142,40 @@ describe('Parity suite against Python reconcile_core.py (#15, #16, #17)', () => 
         whatsapp_medical: rc.whatsapp_medical(res, 'U11 White', REF_TODAY),
       },
       whatsapp_not_paying_all: rc.whatsapp_not_paying(res, null, REF_TODAY),
+      thrive_only: thriveOnlyParity(thLoaded),
     };
 
     expect(actual).toEqual(expected);
   });
+
+  /** The same Thrive export reconciled with no FA report (mirrors thrive_only_parity in Python). */
+  function thriveOnlyParity(thLoaded: rc.ThrivePlayer[]) {
+    const res = rc.reconcile([], thLoaded, { ...rc.DEFAULT_TEAM_MAP }, rc.DEFAULT_FUZZY, REF_TODAY);
+    const [, npRows] = rc.not_paying_report(res, REF_TODAY);
+    const teams: Record<string, string[][]> = {};
+    for (const [label, members] of Object.entries(res.teams)) {
+      teams[label] = members.map(([src, row]) => [src, row.thrive_name]);
+    }
+    return {
+      fa_checked: res.fa_checked,
+      counts: res.counts(),
+      team_labels: rc.team_labels(res),
+      views: rc.RESULT_TABS.map(([t]) => rc.view_title(t, res)),
+      rows: res.rows.map((r) => [
+        r.result,
+        r.level,
+        r.issue,
+        r.dq,
+        r.thrive_name,
+        r.thrive_teams,
+        rc.paying_status(r),
+      ]),
+      teams,
+      not_paying: npRows.map(([vals, src]) => [vals.map(fmtVal), src]),
+      whatsapp_squad: rc.whatsapp_squad(res, 'U11 White', REF_TODAY),
+      whatsapp_squad_list: rc.whatsapp_squad_list(res, 'U11 White', REF_TODAY, '10:42'),
+    };
+  }
 
   it('handles missing Thrive columns and unknown mandates identically to Python (#11, #15)', async () => {
     const faBuf = await createFaBuffer();

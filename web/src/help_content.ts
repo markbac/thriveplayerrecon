@@ -102,7 +102,7 @@ export const HELP_SECTIONS: Array<[string, string, string]> = [
   [
     'quick',
     'Quick start',
-    `1. Choose or drag-and-drop your two Excel files in Step 1: the FA player registration report and the Thrive data export. "How to get these files" (in the Step 1 heading, or Help > Getting the exports) has the steps for downloading them and the Thrive columns to include.
+    `1. Choose or drag-and-drop your two Excel files in Step 1: the FA player registration report and the Thrive data export. "How to get these files" (in the Step 1 heading, or Help > Getting the exports) has the steps for downloading them and the Thrive columns to include. The FA report is optional: with only the Thrive export you get team sheets, lists and WhatsApp messages, but FA registration is not checked.
 2. Click Reconcile. This compares the two lists in your browser in a few seconds; a progress indicator shows each step. Until you do, the tables say "Not reconciled yet". If you choose different files afterwards, Step 2 says "Files changed" until you click Reconcile again.
 3. On the Results tab, pick a view on the left. Click (or press Enter on) any row to see all its details.
 4. Fix anything that needs attention in Thrive or the FA system.

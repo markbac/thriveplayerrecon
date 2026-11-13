@@ -55,6 +55,8 @@ Click **Find my latest exports**. The tool looks in your Downloads folder for th
 
 If you put the files in the wrong boxes, the tool notices and swaps them.
 
+**Thrive only (no FA report):** the FA report is optional. Leave its box empty and choose only the Thrive export to get team sheets, the Squad list, Copy for WhatsApp, Not paying, medical and consents lists, manager contacts and the Thrive data checks (duplicates, a parent's date of birth and so on). Teams use Thrive's own team names, so no team mappings are needed. Anything that compares against the FA is marked **FA not checked**: the In Thrive not in FA, In FA not in Thrive, Check match and Team differs views, and the FA tick or cross in the squad message. The status bar says **Thrive only (no FA report)**.
+
 ## Step 2: reconcile
 
 Click **Reconcile** (or press **Ctrl+R**). It takes a few seconds. A message tells you how many players were compared and whether any Thrive team needs a decision.
@@ -237,6 +239,8 @@ Thrive and the FA name teams differently, for example *U07 Eagles* and *Wilpshir
 ## Using the web app
 
 The web app provides the same tabs, matching rules and exports inside your browser on Windows, Mac, Chromebook and tablet:
+
+- **Top bar:** stays at the top of the page as you scroll, so Help, About and the downloads are always in reach. **Download Windows app** opens the latest release on GitHub, where you can download the PlayerReconcile `.exe`
 
 - **Choosing files:** drag and drop the FA report and Thrive export onto the Step 1 boxes, or click **Browse...** (browsers do not allow a web page to scan your Downloads folder automatically, so **Find my latest exports** is desktop-only)
 - **Team files download:** clicking **Export team files for managers** downloads a single `.zip` archive (`Team_files_YYYY-MM-DD.zip`) containing one Excel file per team inside a dated folder

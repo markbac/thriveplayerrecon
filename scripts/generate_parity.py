@@ -181,7 +181,26 @@ def build_parity_data() -> dict:
                 "whatsapp_medical": rc.whatsapp_medical(res, "U11 White", today=REF_TODAY),
             },
             "whatsapp_not_paying_all": rc.whatsapp_not_paying(res, None, today=REF_TODAY),
+            "thrive_only": thrive_only_parity(th_loaded),
         }
+
+
+def thrive_only_parity(th_loaded):
+    """The same Thrive export reconciled with no FA report."""
+    res = rc.reconcile([], th_loaded, dict(rc.DEFAULT_TEAM_MAP), today=REF_TODAY)
+    np_headers, np_rows = rc.not_paying_report(res, today=REF_TODAY)
+    return {
+        "fa_checked": res.fa_checked,
+        "counts": dict(res.counts()),
+        "team_labels": rc.team_labels(res),
+        "views": [rc.view_title(t, res) for t, _p in rc.RESULT_TABS],
+        "rows": [[r.result, r.level, r.issue, r.dq, r.thrive_name, r.thrive_teams, rc.paying_status(r)]
+                 for r in res.rows],
+        "teams": {label: [[src, row.thrive_name] for src, row in members] for label, members in res.teams.items()},
+        "not_paying": [([fmt_val(x) for x in vals], src) for vals, src in np_rows],
+        "whatsapp_squad": rc.whatsapp_squad(res, "U11 White", today=REF_TODAY),
+        "whatsapp_squad_list": rc.whatsapp_squad_list(res, "U11 White", today=REF_TODAY, time_text="10:42"),
+    }
 
 
 if __name__ == "__main__":
