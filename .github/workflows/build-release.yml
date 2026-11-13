@@ -73,6 +73,15 @@ jobs:
             exit 1
           fi
 
+      - name: Stamp the build date and time (UK time)
+        shell: pwsh
+        run: |
+          $uk = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'GMT Standard Time')
+          $stamp = $uk.ToString('dd/MM/yyyy HH:mm')
+          $text = (Get-Content src/version.py -Raw) -replace 'BUILD_DATETIME = "[^"]*"', "BUILD_DATETIME = `"$stamp`""
+          Set-Content src/version.py $text -NoNewline
+          Select-String -Path src/version.py -Pattern 'BUILD_DATETIME ='
+
       - name: Build exe with PyInstaller
         shell: bash
         env:

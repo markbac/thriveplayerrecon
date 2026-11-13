@@ -5,8 +5,11 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.7.0';
-export const BUILD_DATETIME = '13/11/2026 11:26';
+export const VERSION = '1.7.1';
+// Stamped by Vite at build time (vite.config.ts), in UK time, so it never needs editing by hand.
+declare const __BUILD_DATETIME__: string | undefined;
+export const BUILD_DATETIME: string =
+  typeof __BUILD_DATETIME__ !== 'undefined' ? __BUILD_DATETIME__ : 'development build';
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
 export const NO_FA = 'No FA needed';
