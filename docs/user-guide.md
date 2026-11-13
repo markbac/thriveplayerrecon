@@ -184,6 +184,7 @@ A data protection warning appears every time you click an export button. Read it
 
 Managers do not use this tool, so you can send them text instead of a file. On the **Team sheets** tab, choose a team and click **Copy for WhatsApp**. A warning appears first. Then a window shows:
 
+- a **Squad list**: a short list of what Thrive has for the team. Each player's name, date of birth and age in years and months (for example `5y 2m`), oldest first, with 👍 for an active Thrive direct debit (mandate) or 👎 for none, then a total (for example `Direct debit: 10 active, 1 without`) and a legend. Players only in the FA report are left out. It shows the date and time it was made. If the Thrive export has no "active mandates" column, the thumbs and total are left out
 - a **Squad** message: each player's age, whether they are in the FA and Thrive, whether they have a direct debit mandate, the parent or carer contact and emergency contact, and a clear warning for anyone without photography consent (plus any other missing consent)
 - a separate **Medical** message listing only players with medical information recorded (not shown if **Include medical details** is unticked)
 
