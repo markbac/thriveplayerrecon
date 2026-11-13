@@ -154,8 +154,9 @@ Missing consents tab lists everyone across the club.
 Untick "Include medical details" to leave medical information out (including the matchday medical alerts)."""),
     ("managers", "Managers file and WhatsApp", """\
 Managers will not have this tool, so the Team sheets tab can make text for you to paste into WhatsApp. Choose a team, \
-click Copy for WhatsApp and you get a squad message (players, contacts, FA and Thrive sign-up and direct debit \
-status) and a separate medical message. Each ends with a data protection reminder.
+click Copy for WhatsApp and you get a squad list (what Thrive has: each player's date of birth and age in \
+years and months, oldest first, with a thumbs up or down for an active direct debit and a total), a squad message (players, contacts, FA \
+and Thrive sign-up and direct debit status) and a separate medical message. Each ends with a data protection reminder.
 
 To show manager names on team sheets and messages, choose an optional Managers file in Step 1. Click \
 Managers template (or File, Save a managers file template) to see the layout: either one row per person (Name, Role, Team(s)) or one row per \
@@ -1467,8 +1468,9 @@ class App(tk.Tk):
         if not messagebox.askokcancel("Data protection warning", WHATSAPP_WARNING, icon="warning"):
             return
         medical = self.medical_var.get()
-        parts = [(f"Squad {i}" if len(msgs) > 1 else "Squad", m)
-                 for msgs in [rc.whatsapp_squad(self.result, label)] for i, m in enumerate(msgs, 1)]
+        parts = [("Squad list", rc.whatsapp_squad_list(self.result, label))]
+        parts += [(f"Squad {i}" if len(msgs) > 1 else "Squad", m)
+                  for msgs in [rc.whatsapp_squad(self.result, label)] for i, m in enumerate(msgs, 1)]
         np_msgs = rc.whatsapp_not_paying(self.result, label)
         parts += [(f"Not paying {i}" if len(np_msgs) > 1 else "Not paying", m) for i, m in enumerate(np_msgs, 1)]
         if medical:

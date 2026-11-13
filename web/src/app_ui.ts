@@ -1993,10 +1993,13 @@ export class WebApp {
       if (!this.result) return;
       const medical = this.settings.medical;
       const squadMsgs = rc.whatsapp_squad(this.result, label);
-      const parts: Array<[string, string]> = squadMsgs.map((m, i) => [
-        squadMsgs.length > 1 ? `Squad ${i + 1}` : 'Squad',
-        m,
-      ]);
+      const parts: Array<[string, string]> = [
+        ['Squad list', rc.whatsapp_squad_list(this.result, label)],
+        ...squadMsgs.map((m, i): [string, string] => [
+          squadMsgs.length > 1 ? `Squad ${i + 1}` : 'Squad',
+          m,
+        ]),
+      ];
       const npMsgs = rc.whatsapp_not_paying(this.result, label);
       parts.push(...npMsgs.map((m, i): [string, string] => [npMsgs.length > 1 ? `Not paying ${i + 1}` : 'Not paying', m]));
       if (medical) {

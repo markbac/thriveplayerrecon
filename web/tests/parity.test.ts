@@ -138,6 +138,7 @@ describe('Parity suite against Python reconcile_core.py (#15, #16, #17)', () => 
         headers: teamU11Headers,
         rows: teamU11Rows.map(([vals, src]) => [vals.map(fmtVal), src]),
         whatsapp_squad: rc.whatsapp_squad(res, 'U11 White', REF_TODAY),
+        whatsapp_squad_list: rc.whatsapp_squad_list(res, 'U11 White', REF_TODAY, '10:42'),
         whatsapp_medical: rc.whatsapp_medical(res, 'U11 White', REF_TODAY),
       },
       whatsapp_not_paying_all: rc.whatsapp_not_paying(res, null, REF_TODAY),

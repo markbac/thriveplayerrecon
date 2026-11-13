@@ -177,6 +177,7 @@ def build_parity_data() -> dict:
                 "headers": team_u11_headers,
                 "rows": [([fmt_val(x) for x in vals], src) for vals, src in team_u11_rows],
                 "whatsapp_squad": rc.whatsapp_squad(res, "U11 White", today=REF_TODAY),
+                "whatsapp_squad_list": rc.whatsapp_squad_list(res, "U11 White", today=REF_TODAY, time_text="10:42"),
                 "whatsapp_medical": rc.whatsapp_medical(res, "U11 White", today=REF_TODAY),
             },
             "whatsapp_not_paying_all": rc.whatsapp_not_paying(res, None, today=REF_TODAY),

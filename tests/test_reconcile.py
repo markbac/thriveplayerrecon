@@ -112,3 +112,32 @@ def test_whatsapp_link_matches_web_encoding():
         "https://wa.me/447700900010?text=Hi%20*Alex*%20%26%20team%0A%E2%9C%94")
     assert rc.whatsapp_link("07700 900010", "") == "https://wa.me/447700900010"
     assert rc.whatsapp_link("nope", "hi") is None
+
+
+def test_squad_list_shows_only_thrive_players_oldest_first(result):
+    from datetime import date
+    text = rc.whatsapp_squad_list(result, "U11 White", today=date(2026, 11, 13), time_text="09:30")
+    lines = text.split("\n")
+    assert lines[0].startswith("*U11 White* squad in Thrive (") and lines[1] == "Generated 13/11/2026 09:30"
+    assert "Dan Dee" not in text  # FA only, so not reported
+    assert "\U0001f44e Ben Bold, " in text and "\U0001f44d Amy Able, " in text
+    players = [x for x in lines if x[:1] in ("\U0001f44d", "\U0001f44e") and "=" not in x]
+    dobs = [tuple(reversed(x.split(", ")[1].split(" ")[0].split("/"))) for x in players]
+    assert dobs == sorted(dobs)
+    assert "Direct debit: " in text and " without" in text
+
+
+def test_squad_list_age_in_years_and_months():
+    from datetime import date
+    assert rc._age_years_months(date(2021, 8, 20), date(2026, 11, 13)) == "5y 2m"
+    assert rc._age_years_months(date(2020, 10, 2), date(2026, 11, 13)) == "6y 1m"
+    assert rc._age_years_months(date(2020, 11, 13), date(2026, 11, 13)) == "6y 0m"
+
+
+def test_squad_list_without_mandate_column_has_no_thumbs(tmp_path, fa_path):
+    headers = [h for h in THRIVE_HEADERS if h != "Active mandates"]
+    res = rc.reconcile(rc.load_fa(fa_path), rc.load_thrive(write_thrive(tmp_path / "t.xlsx", headers)),
+                       dict(rc.DEFAULT_TEAM_MAP))
+    text = rc.whatsapp_squad_list(res, "U11 White")
+    assert "\U0001f44d" not in text and "\U0001f44e" not in text and "Direct debit" not in text
+    assert "Amy Able, " in text

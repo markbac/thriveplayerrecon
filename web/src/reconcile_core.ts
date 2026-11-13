@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.6.0';
+export const VERSION = '1.7.0';
 export const BUILD_DATETIME = '12/11/2026 15:56';
 
 export const IGNORE = null; // mapping value meaning "this Thrive team has no FA equivalent"
@@ -2072,6 +2072,71 @@ export function _pack_messages(
     }
     return heading.join('\n') + '\n\n' + chunk.join('\n\n') + '\n\n' + footnote;
   });
+}
+
+/** Age as whole years and months, for example '5y 2m'. */
+export function _age_years_months(dob: LocalDate, ref: LocalDate): string {
+  let months = (ref.year - dob.year) * 12 + ref.month - dob.month - (ref.day < dob.day ? 1 : 0);
+  months = Math.max(months, 0);
+  return `${Math.floor(months / 12)}y ${months % 12}m`;
+}
+
+export const THUMB_UP = '👍';
+export const THUMB_DOWN = '👎';
+export const SQUAD_LIST_FOOTNOTE =
+  '_Data protection: contains personal data about children (UK GDPR). ' +
+  'Do not forward; delete when no longer needed._';
+
+/** Simple WhatsApp squad list of what Thrive has for a team: name, date of birth and age (oldest
+ * first) with a thumbs up or down for an active direct debit mandate, plus totals and a legend.
+ * Players only in the FA report are left out. Without a mandate column the thumbs are left out. */
+export function whatsapp_squad_list(
+  result: Result,
+  label: string,
+  today?: LocalDate,
+  timeText?: string
+): string {
+  const now = new Date();
+  const todayDate = today ?? todayLocalDate();
+  const time =
+    timeText ??
+    `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const players = (result.teams[label] || [])
+    .filter(([source, row]) => source !== 'FA only' && row.th !== null)
+    .map(([, row]) => row.th as ThrivePlayer);
+  const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  const dobKey = (d: LocalDate | null) => (d ? d.year * 10000 + d.month * 100 + d.day : 0);
+  players.sort(
+    (a, b) =>
+      Number(a.dob === null) - Number(b.dob === null) ||
+      dobKey(a.dob) - dobKey(b.dob) ||
+      cmp(a.last.toLowerCase(), b.last.toLowerCase()) ||
+      cmp(a.first.toLowerCase(), b.first.toLowerCase())
+  );
+  const known = players.every((t) => mandate_known(t));
+  const lines = players.map((t) => {
+    let name = [t.first, t.last].filter(Boolean).join(' ');
+    if (t.dob) name += `, ${formatDate(t.dob)} (${_age_years_months(t.dob, todayDate)})`;
+    return known ? `${t.mandate ? THUMB_UP : THUMB_DOWN} ${name}` : name;
+  });
+  const title = label.endsWith(' (Thrive)') ? label.slice(0, -' (Thrive)'.length) : label;
+  const out = [
+    `*${title}* squad in Thrive (${players.length} players)`,
+    `Generated ${formatDate(todayDate)} ${time}`,
+    '',
+    ...(lines.length ? lines : ['No players in Thrive for this team.']),
+  ];
+  if (known && players.length) {
+    const paying = players.filter((t) => t.mandate).length;
+    out.push(
+      '',
+      `Direct debit: ${paying} active, ${players.length - paying} without`,
+      '',
+      `${THUMB_UP} = active Thrive direct debit (mandate)`,
+      `${THUMB_DOWN} = no active direct debit`
+    );
+  }
+  return [...out, '', SQUAD_LIST_FOOTNOTE].join('\n');
 }
 
 export function _mandate_mark(row: Row): string {

@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-13
+
+### Added
+- **Squad list** tab (web and desktop apps) in the team Copy for WhatsApp window: a short list of what Thrive has for the team, with each player's name, date of birth and age in years and months (for example `5y 2m`), oldest first. 👍 marks an active Thrive direct debit (mandate) and 👎 marks none. It ends with a total (for example `Direct debit: 10 active, 1 without`), a legend and a data protection note, and shows the date and time it was made. Players only in the FA report are left out. If the Thrive export has no mandate column, the thumbs and total are left out
+
 ## [1.6.0] - 2026-11-12
 
 ### Added

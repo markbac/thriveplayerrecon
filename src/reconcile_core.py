@@ -1314,6 +1314,45 @@ def whatsapp_squad(result: Result, label: str, today: Optional[date] = None) -> 
     return _pack_messages(head, blocks, SQUAD_FOOTNOTE)
 
 
+def _age_years_months(dob: date, ref: date) -> str:
+    """Age as whole years and months, for example '5y 2m'."""
+    months = (ref.year - dob.year) * 12 + ref.month - dob.month - (1 if ref.day < dob.day else 0)
+    months = max(months, 0)
+    return f"{months // 12}y {months % 12}m"
+
+
+THUMB_UP, THUMB_DOWN = "👍", "👎"
+SQUAD_LIST_FOOTNOTE = ("_Data protection: contains personal data about children (UK GDPR). "
+                       "Do not forward; delete when no longer needed._")
+
+
+def whatsapp_squad_list(result: Result, label: str, today: Optional[date] = None,
+                        time_text: Optional[str] = None) -> str:
+    """Simple WhatsApp squad list of what Thrive has for a team: name, date of birth and age (oldest
+    first) with a thumbs up or down for an active direct debit mandate, plus totals and a legend.
+    Players only in the FA report are left out. Without a mandate column the thumbs are left out."""
+    now = datetime.now()
+    today = today or now.date()
+    time_text = time_text if time_text is not None else f"{now:%H:%M}"
+    players = [row.th for source, row in result.teams.get(label, []) if source != "FA only" and row.th]
+    players.sort(key=lambda t: (t.dob is None, t.dob or date.min, t.last.lower(), t.first.lower()))
+    known = all(mandate_known(t) for t in players)
+    lines = []
+    for t in players:
+        name = " ".join(x for x in (t.first, t.last) if x)
+        if t.dob:
+            name += f", {t.dob:%d/%m/%Y} ({_age_years_months(t.dob, today)})"
+        lines.append(f"{THUMB_UP if t.mandate else THUMB_DOWN} {name}" if known else name)
+    title = label[:-len(" (Thrive)")] if label.endswith(" (Thrive)") else label
+    out = [f"*{title}* squad in Thrive ({len(players)} players)", f"Generated {today:%d/%m/%Y} {time_text}", ""]
+    out += lines or ["No players in Thrive for this team."]
+    if known and players:
+        paying = sum(1 for t in players if t.mandate)
+        out += ["", f"Direct debit: {paying} active, {len(players) - paying} without", "",
+                f"{THUMB_UP} = active Thrive direct debit (mandate)", f"{THUMB_DOWN} = no active direct debit"]
+    return "\n".join(out + ["", SQUAD_LIST_FOOTNOTE])
+
+
 def _mandate_mark(row: Row) -> str:
     """Tick, cross, or a question mark when the Thrive export had no mandate column."""
     if row.th is not None and not mandate_known(row.th):
