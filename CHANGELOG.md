@@ -4,6 +4,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-13
+
+### Fixed
+- Web app showed the 1.6.0 creation date (12/11/2026 15:56) in version 1.7.0
+
+### Changed
+- The creation date and time is now stamped automatically, in UK time, when the desktop exe and the web app are built, instead of being edited by hand. Running from source shows "development build"
+- New test checks the web app version matches `src/version.py`
+
 ## [1.7.0] - 2026-11-13
 
 ### Added
