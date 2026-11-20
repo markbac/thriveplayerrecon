@@ -9,6 +9,7 @@ import { PDFDocument, PDFFont, PDFImage, PDFPage, StandardFonts, rgb, RGB } from
 import logoUrl from './assets/club_logo.png?inline';
 import badgesUrl from './assets/fa_badges.png?inline';
 import * as rc from './reconcile_core';
+import * as co from './coaches';
 
 export const CLUB_NAME = 'Wilpshire Wanderers Football Club';
 export const CLUB_LINES = ['Established 1997', 'Promoting a team Spirit'];
@@ -21,6 +22,8 @@ export const PDF_NOTE =
   'name: check before chasing.';
 export const CONFIDENTIAL =
   'CONFIDENTIAL: names children. Share only with those who need it and delete when finished.';
+export const CONFIDENTIAL_ADULTS =
+  'CONFIDENTIAL: personal data about club officials. Share only with those who need it and delete when finished.';
 
 export interface TeamSummary {
   label: string;
@@ -39,6 +42,7 @@ export interface Official {
   second_role: string;
   exec_member: boolean;
   teams: string[];
+  phone?: string;
 }
 
 const rolesOf = (o: Official) => [o.role, o.second_role].filter(Boolean);
@@ -72,6 +76,7 @@ export function parse_officials(sheets: unknown[][][]): Official[] {
       const execI = rc._find_col(cols, ['exec member', 'exec', 'executive', 'executive member', 'committee',
         'exec committee', 'committee member']);
       const teamI = rc._find_col(cols, rc.TEAM_HEADERS);
+      const phoneI = rc._find_col(cols, ['phone', 'mobile', 'telephone', 'tel', 'phone number', 'mobile number']);
       const out: Official[] = [];
       for (const r of rows.slice(i + 1)) {
         const name = rc._cell(r, nameI);
@@ -80,7 +85,10 @@ export function parse_officials(sheets: unknown[][][]): Official[] {
         const teams = teamI !== null ? rc._split_list(rc._cell(r, teamI)) : [];
         if (!(name || role || second)) continue;
         if (name && !role && teams.length && !teamRole(second)) role = 'Manager'; // as the managers file reads it
-        out.push({ name, role, second_role: second, exec_member: execI !== null && isYes(rc._cell(r, execI)), teams });
+        out.push({
+          name, role, second_role: second, exec_member: execI !== null && isYes(rc._cell(r, execI)), teams,
+          phone: phoneI !== null ? rc._cell(r, phoneI) : '',
+        });
       }
       if (out.length) return out;
     }
@@ -94,7 +102,9 @@ export function officials_from_staff(result: rc.Result): Official[] {
   for (const label of rc.team_labels(result)) {
     for (const p of result.staff[label] || []) {
       const key = `${p.name.toLowerCase()}\u0000${p.role.toLowerCase()}`;
-      if (!seen.has(key)) seen.set(key, { name: p.name, role: p.role, second_role: '', exec_member: false, teams: [] });
+      if (!seen.has(key)) {
+        seen.set(key, { name: p.name, role: p.role, second_role: '', exec_member: false, teams: [], phone: p.phone });
+      }
       seen.get(key)!.teams.push(label);
     }
   }
@@ -394,9 +404,31 @@ class Writer {
     this.y -= gapAfter;
   }
 
+  /** One row of coloured, labelled boxes explaining the colours. */
+  legend(labels: string[], colours: Record<string, RGB | null>): void {
+    const size = 8;
+    const h = size * 1.2 + 8;
+    if (this.y - h < this.bottom) this.newPage();
+    const width = this.width / labels.length;
+    labels.forEach((label, i) => {
+      const x = MARGIN + i * width;
+      this.page.drawRectangle({ x, y: this.y - h, width, height: h, color: colours[label] ?? undefined,
+        borderColor: LINE, borderWidth: 0.5 });
+      const text = safe(this.f.regular, label);
+      this.page.drawText(text, { x: x + (width - this.f.regular.widthOfTextAtSize(text, size)) / 2,
+        y: this.y - h / 2 - size * 0.35, size, font: this.f.regular, color: BLACK });
+    });
+    this.y -= h + 4;
+  }
+
   /** A table with a blue header row, repeated on each new page. fill(row, col) gives a cell background. */
-  table(header: string[], rows: string[][], fractions: number[], fill: (r: number, c: number) => RGB | null): void {
-    const size = 10;
+  table(
+    header: string[],
+    rows: string[][],
+    fractions: number[],
+    fill: (r: number, c: number) => RGB | null,
+    size = 10
+  ): void {
     const widths = fractions.map((f) => f * this.width);
     const rowHeight = (cells: string[], font: PDFFont) =>
       Math.max(...cells.map((v, i) => wrap(font, v, size, widths[i] - 8).length)) * size * 1.2 + 7;
@@ -458,14 +490,17 @@ function chrome(page: PDFPage, f: Fonts, logo: PDFImage, badges: PDFImage, n: nu
 }
 
 /** The teams PDF as bytes, ready to download. */
+/** The club PDF as bytes: the summary, club officials, coaches' qualifications (with the FA Team Qualifications
+ * Report) and a page per team (with the player files). result is null for a coaches-only run. */
 export async function buildClubPdf(
-  result: rc.Result,
+  result: rc.Result | null,
   now: Date = new Date(),
-  officialsIn: Official[] = []
+  officialsIn: Official[] = [],
+  coaches: co.CoachesResult | null = null
 ): Promise<Uint8Array> {
-  const officials = officialsIn.length ? officialsIn : officials_from_staff(result);
+  const officials = officialsIn.length ? officialsIn : result ? officials_from_staff(result) : [];
   const today = rc.makeDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
-  const teams = club_summary(result, today, officials);
+  const teams = result ? club_summary(result, today, officials) : [];
   const doc = await PDFDocument.create();
   doc.setTitle(`${CLUB_NAME}: ${DOC_TITLE}`);
   doc.setAuthor(CLUB_NAME);
@@ -481,36 +516,47 @@ export async function buildClubPdf(
   const badges = await doc.embedPng(dataUrlBytes(badgesUrl));
   const w = new Writer(doc, f);
 
-  w.text(DOC_TITLE, 18, f.bold, HEAD, 4);
-  w.text(
-    `Every team with its coaches and players, from the FA and Thrive exports, ${now.getDate()} ` +
-      `${MONTHS[now.getMonth()]} ${now.getFullYear()}.`, 10.5, f.regular);
-  if (!result.fa_checked) {
-    w.text('No FA report was loaded for this run, so FA registration was not checked.', 10.5, f.regular);
+  const dateText = `${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  if (result) {
+    w.text(DOC_TITLE, 18, f.bold, HEAD, 4);
+    w.text(`Every team with its coaches and players, from the FA and Thrive exports, ${dateText}.`, 10.5, f.regular);
+    if (!result.fa_checked) {
+      w.text('No FA report was loaded for this run, so FA registration was not checked.', 10.5, f.regular);
+    }
+  } else {
+    w.text('Club officials and coaches', 18, f.bold, HEAD, 4);
+    w.text(`From the FA Team Qualifications Report and the club officials file, ${dateText}.`, 10.5, f.regular);
   }
   w.y -= 4;
-  w.table(['Club summary', ''], club_totals(result).map(([name, n]) => [name, String(n)]), [0.72, 0.14],
-    (_r, c) => (c === 1 ? STRIPE : null));
-  if (officials.length) {
-    w.y += 8; // joined to the table above
-    w.table(['Club officials', ''], officials_totals(officials).map(([name, n]) => [name, String(n)]), [0.72, 0.14],
+  // one summary block: a table per part, joined together
+  const sections: Array<[string, Array<[string, number]>]> = [];
+  if (result) sections.push(['Club summary', club_totals(result)]);
+  if (officials.length) sections.push(['Club officials', officials_totals(officials)]);
+  if (coaches) sections.push(['Coaches (FA Team Qualifications Report)', co.coaches_totals(coaches, today)]);
+  sections.forEach(([title, items], i) => {
+    if (i > 0) w.y += 8; // joined to the table above
+    w.table([title, ''], items.map(([name, n]) => [name, String(n)]), [0.72, 0.14],
       (_r, c) => (c === 1 ? STRIPE : null));
+  });
+  if (result) {
+    w.text(`${teams.length} teams`, 10.5, f.bold, BLACK, 4);
+    const summary = teams.map((t) => [
+      t.label,
+      t.staff.filter(([role]) => teamRole(role) === 'manager').map(([, n]) => n).join(', ') || '-',
+      String(t.players.length),
+      result.fa_checked ? String(t.in_fa) : '-',
+      String(t.in_thrive),
+      String(t.paying),
+      String(t.not_paying),
+    ]);
+    w.table(['Team', 'Manager(s)', 'Players', 'In FA', 'In Thrive', 'Paying', 'Not paying'], summary,
+      [0.22, 0.28, 0.1, 0.09, 0.11, 0.1, 0.1],
+      (r, c) => (c === 6 ? (teams[r].not_paying ? BAD : GOOD) : r % 2 === 1 ? STRIPE : null));
+    w.text(PDF_NOTE, 9, f.regular, GREY);
+    w.text(CONFIDENTIAL, 9, f.bold, RED);
+  } else {
+    w.text(CONFIDENTIAL_ADULTS, 9, f.bold, RED);
   }
-  w.text(`${teams.length} teams`, 10.5, f.bold, BLACK, 4);
-  const summary = teams.map((t) => [
-    t.label,
-    t.staff.filter(([role]) => teamRole(role) === 'manager').map(([, n]) => n).join(', ') || '-',
-    String(t.players.length),
-    result.fa_checked ? String(t.in_fa) : '-',
-    String(t.in_thrive),
-    String(t.paying),
-    String(t.not_paying),
-  ]);
-  w.table(['Team', 'Manager(s)', 'Players', 'In FA', 'In Thrive', 'Paying', 'Not paying'], summary,
-    [0.22, 0.28, 0.1, 0.09, 0.11, 0.1, 0.1],
-    (r, c) => (c === 6 ? (teams[r].not_paying ? BAD : GOOD) : r % 2 === 1 ? STRIPE : null));
-  w.text(PDF_NOTE, 9, f.regular, GREY);
-  w.text(CONFIDENTIAL, 9, f.bold, RED);
 
   if (officials.length) {
     // club officials page: president, executive committee, managers and assistants
@@ -533,6 +579,60 @@ export async function buildClubPdf(
       w.text('Other club roles', 14, f.bold, HEAD, 2);
       w.table(['Role', 'Name', 'Also'], summary.others.map((e) => [...e]), [0.4, 0.25, 0.35], () => null);
     }
+  }
+
+  if (coaches) {
+    // coaches' qualifications: what needs doing, then every coach
+    const windowColour: Record<string, RGB | null> = Object.fromEntries(
+      Object.entries(co.WINDOW_COLOURS).map(([k, v]) => [k, hex(v)]));
+
+    w.newPage();
+    w.text("Coaches' qualifications", 18, f.bold, HEAD, 4);
+    w.text(`From the FA Team Qualifications Report${coaches.report_date ? ' of ' + coaches.report_date : ''}. ` +
+      `Expiry windows count from ${rc.formatDate(today)}.`, 10.5, f.regular, BLACK, 6);
+    const incomplete = coaches.teams.filter((t) => t.complete.toLowerCase() === 'incomplete').map((t) => t.team);
+    if (incomplete.length) {
+      w.text(`Teams without a qualified coach/manager (FA: Incomplete): ${incomplete.join(', ')}`, 10.5, f.bold,
+        BLACK, 6);
+    }
+    const lists = co.expiry_lists(coaches, today);
+    const due = [co.EXPIRED, co.NOT_HELD, co.M1, co.M3, co.M6].flatMap((win) =>
+      lists[win].map((item) => [win, ...item]));
+    w.text('Expired, not held and expiring in the next 6 months', 14, f.bold, HEAD, 2);
+    if (due.length) {
+      w.table(['When', 'Coach', 'Team(s)', 'Certificate', 'Expiry'], due, [0.17, 0.22, 0.27, 0.16, 0.18],
+        (r, c) => (c === 0 ? windowColour[due[r][0]] : null));
+    } else {
+      w.text('Nothing expired, missing or expiring within 6 months.', 10.5, f.regular);
+    }
+    w.legend([co.EXPIRED, co.M1, co.M3, co.M6, co.OK, co.NOT_HELD], windowColour);
+    w.text('Not held is not always required: the FA requires First Aid only for some roles.', 9, f.regular, GREY, 8);
+    if (coaches.officials_checked) {
+      w.text('Compared with the club officials file', 14, f.bold, HEAD, 2);
+      const notInFile = coaches.coaches.filter((c) => c.note === 'Not in the officials file');
+      const differs = coaches.coaches.filter((c) => c.note && c.note !== 'Not in the officials file');
+      const items: string[] = [];
+      if (notInFile.length) {
+        items.push('In the FA report but not the officials file: ' +
+          notInFile.map((c) => `${c.name} (${c.teams.join(', ')})`).join(', '));
+      }
+      if (coaches.not_in_fa.length) {
+        items.push('In the officials file with a team role but not the FA report: ' +
+          coaches.not_in_fa.map(([n, , t]) => `${n} (${t})`).join(', '));
+      }
+      for (const c of differs) items.push(`${c.name}: ${c.note}`);
+      if (!items.length) items.push('Everyone matches.');
+      for (const item of items) w.text(item, 10.5, f.regular, BLACK, 2);
+      w.y -= 6;
+    }
+    w.text(`All coaches and team officials (${coaches.coaches.length})`, 14, f.bold, HEAD, 2);
+    const all = coaches.coaches.map((c) => [c.name, c.teams.join(', '), c.roles.join(', '),
+      c.coaching || 'None recorded', ...co.CERTS.map(([k]) => co.cert_text(c.certs[k]))]);
+    w.table(['Name', 'Team(s)', 'Role(s)', 'Coaching qualification', 'First Aid', 'Safeguarding', 'DBS'], all,
+      [0.17, 0.14, 0.13, 0.17, 0.13, 0.13, 0.13],
+      (r, c) => (c >= 4 ? windowColour[co.cert_window(coaches.coaches[r].certs[co.CERTS[c - 4][0]], today)] : null),
+      8.5);
+    w.legend([co.EXPIRED, co.M1, co.M3, co.M6, co.OK, co.NOT_HELD], windowColour);
   }
 
   for (const t of teams) {

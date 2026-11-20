@@ -15,10 +15,12 @@ def test_not_reconciled_notice_then_results(app_factory, fa_path, thrive_path):
     a = app_factory()
     a.update()
     # one notice per results table, placed over it (only the visible tab's notice is drawn)
-    assert len(a.placeholders) == 4 and all(p.winfo_manager() == "place" for p in a.placeholders)
+    assert len(a.placeholders) == 5 and all(p.winfo_manager() == "place" for p in a.placeholders)
     assert a.run_state_var.get() == "Not run yet"
     reconcile_in_app(a, fa_path, thrive_path)
-    assert all(not p.winfo_manager() for p in a.placeholders)
+    # the Coaches tab keeps its notice until the FA qualifications report is chosen
+    assert all(not p.winfo_manager() for p in a.placeholders if p is not a.coach_placeholder)
+    assert a.coach_placeholder.winfo_manager() == "place"
     assert a.run_state_var.get().startswith("Last run")
     a.fa_var.set(fa_path + "x")
     assert "Files changed" in a.run_state_var.get()
@@ -171,3 +173,22 @@ def test_lone_thrive_file_in_fa_box_is_moved(app_factory, thrive_path):
     a = app_factory()
     reconcile_in_app(a, thrive_path, "")
     assert a.fa_var.get() == "" and a.thrive_var.get() == thrive_path and a.result.fa_checked is False
+
+
+def test_coaches_only_run_and_with_players(app_factory, fa_path, thrive_path, tmp_path):
+    from test_coaches import _report
+    report = _report(tmp_path)
+    a = app_factory()
+    a.qual_var.set(report)
+    a.run()  # no player files: a coaches-only run
+    a.update()
+    assert a.result is None and len(a.coaches.coaches) == 4
+    assert len(a.coach_tree.get_children()) == 4 and not a.coach_placeholder.winfo_manager()
+    assert "pdf_button" in a.__dict__ and "disabled" not in a.pdf_button.state()
+    a.coach_filter_var.set("Expired or not held")
+    a._fill_coaches_tab()
+    assert len(a.coach_tree.get_children()) == 2
+    a.coach_filter_var.set("All coaches")
+    reconcile_in_app(a, fa_path, thrive_path)  # players and coaches together
+    assert a.result is not None and len(a.coaches.coaches) == 4
+    assert "Coaches tab: 4 team officials" in a.hint_var.get()

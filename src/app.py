@@ -15,6 +15,7 @@ from tkinter import font as tkfont
 from typing import Dict, Optional
 
 import club_pdf
+import coaches as co
 import reconcile_core as rc
 from version import APP_NAME, APP_TITLE, BUILD_DATETIME, __version__
 
@@ -94,8 +95,9 @@ Until you do, the tables say "Not reconciled yet". If you choose different files
 5.  Use Share to save Excel files. "Export team files for managers" creates one file per team. "Club PDF: teams and \
 players" saves one PDF on the club template listing every team, its coaches and each player's FA, Thrive and paying \
 status.
+6.  Coaches: choose the FA Team Qualifications Report (Whole Game System, Reports > Team Qualifications Report) in Step 1, with or without the player files, and click Reconcile. The Coaches tab shows every team official's First Aid, Safeguarding and DBS expiry in bands (expired, within 1 month, 1 to 3 months, 3 to 6 months, 6 months or more), compares them with your managers or club officials file, and can send a coach a WhatsApp reminder. The club PDF adds a coaches' qualifications section.
 
-Nothing is changed in Thrive or the FA system. The tool only reads your two files."""),
+Nothing is changed in Thrive, the FA system or the Whole Game System. The tool only reads your files."""),
     ("exports", "Getting the exports", f"""\
 FA player report
 1.  Go to the club portal: https://clubs.thefa.com/
@@ -301,6 +303,11 @@ def autowrap(label, pad: int = 12):
     return label
 
 
+def _band_tag(band: str) -> str:
+    """Treeview tag for an expiry band ('1 to 3 months' -> 'band_1_to_3_months')."""
+    return "band_" + re.sub(r"\W+", "_", band.lower())
+
+
 def config_path() -> str:
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
     folder = os.path.join(base, APP_NAME)
@@ -309,7 +316,7 @@ def config_path() -> str:
 
 
 def load_config() -> dict:
-    cfg = {"fa_path": "", "thrive_path": "", "staff_path": "", "fuzzy": rc.DEFAULT_FUZZY, "medical": True,
+    cfg = {"fa_path": "", "thrive_path": "", "staff_path": "", "qual_path": "", "fuzzy": rc.DEFAULT_FUZZY, "medical": True,
            "team_map": dict(rc.DEFAULT_TEAM_MAP), "geometry": "", "zoomed": False, "tab": 0, "team": ""}
     try:
         with open(config_path(), encoding="utf-8") as fh:
@@ -395,7 +402,9 @@ class App(tk.Tk):
         self.fa_var = tk.StringVar(value=self.cfg["fa_path"])
         self.thrive_var = tk.StringVar(value=self.cfg["thrive_path"])
         self.staff_var = tk.StringVar(value=self.cfg["staff_path"])
+        self.qual_var = tk.StringVar(value=self.cfg["qual_path"])
         self.staff = []
+        self.coaches: Optional[co.CoachesResult] = None
         self.medical_var = tk.BooleanVar(value=bool(self.cfg.get("medical", True)))
         self.fuzzy_var = tk.StringVar(value=f"{float(self.cfg['fuzzy']):.2f}")
         self.search_var = tk.StringVar()
@@ -428,6 +437,7 @@ class App(tk.Tk):
         self._build_team_tab()
         self._build_not_paying_tab()
         self._build_consents_tab()
+        self._build_coaches_tab()
         self._build_mapping_tab()
         self._refresh_mapping_table()
         self._set_exports_enabled(False)
@@ -438,7 +448,7 @@ class App(tk.Tk):
         self._restore_window()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.run_files = None
-        for var in (self.fa_var, self.thrive_var, self.staff_var):
+        for var in (self.fa_var, self.thrive_var, self.staff_var, self.qual_var):
             var.trace_add("write", lambda *_a: self._files_changed())
         self.status_var.set(f"Version {__version__} (created {BUILD_DATETIME})   |   Not reconciled yet")
         self.bind("<F1>", lambda _e: self.show_help("quick"))
@@ -501,7 +511,7 @@ class App(tk.Tk):
 
         # Heading with a "how to get these files" link, so the help costs no space in the rows below
         heading = ttk.Frame(bar)
-        ttk.Label(heading, text=" Step 1: choose your two files ").pack(side="left")
+        ttk.Label(heading, text=" Step 1: choose your files ").pack(side="left")
         link = tk.Label(heading, text="How to get these files", fg="#0563C1", cursor="hand2",
                         font=("Segoe UI", 10, "underline") if FONT else None)
         link.pack(side="left", padx=(4, 4))
@@ -516,15 +526,18 @@ class App(tk.Tk):
                                                     "registration is not checked."),
                 ("Thrive data export", self.thrive_var, "The Excel data export downloaded from Thrive."),
                 ("Managers file (optional)", self.staff_var, "Optional. An Excel or CSV list of managers, assistant "
-                 "managers and their teams. Their names then appear on team sheets and messages. Use Save a "
-                 "template to see the layout."))
+                 "managers and their teams, or the club officials file. Their names then appear on team sheets, "
+                 "messages and the club PDF. Use Save a template to see the layout."),
+                ("FA qualifications (optional)", self.qual_var, "Optional. The FA Team Qualifications Report from the "
+                 "Whole Game System (Reports > Team Qualifications Report). It fills the Coaches tab: DBS, First "
+                 "Aid and Safeguarding expiry for every team official. Works with or without the player files."))
         for i, (label, var, hint) in enumerate(rows):
             ttk.Label(files, text=label).grid(row=i, column=0, sticky="w", padx=(0, 8), pady=2)
             tip(ttk.Entry(files, textvariable=var), hint).grid(row=i, column=1, sticky="ew", pady=2)
             tip(ttk.Button(files, text="Browse...", command=lambda v=var: self._browse(v)),
                 "Choose the file from your computer.").grid(row=i, column=2, padx=(8, 0))
         actions = ttk.Frame(files)
-        actions.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(4, 0))
+        actions.grid(row=len(rows), column=1, columnspan=2, sticky="ew", pady=(4, 0))
         tip(ttk.Button(actions, text="Find my latest exports", command=self._find_latest),
             "Looks in your Downloads folder for the newest FA report and Thrive export and fills in both boxes."
             ).pack(side="left")
@@ -548,7 +561,9 @@ class App(tk.Tk):
                  "One Excel file with every view, the not-paying list and a sheet for each team.")
         b3 = tip(ttk.Button(share, text="Club PDF: teams and players...", command=self.export_club_pdf),
                  "A PDF on the club template: every team, its coaches and players, and whether each player is in "
-                 "the FA, in Thrive and paying. Made on this computer, nothing is uploaded.")
+                 "the FA, in Thrive and paying, plus the club officials and coaches' qualifications. Made on this "
+                 "computer, nothing is uploaded.")
+        self.pdf_button = b3
         b1.pack(fill="x")
         b2.pack(fill="x", pady=(4, 0))
         b3.pack(fill="x", pady=(4, 4))
@@ -841,6 +856,170 @@ class App(tk.Tk):
         self.cons_tree = self._make_tree(tab)
         self._register_table(self.cons_tree, self.cons_search_var, self.cons_count_var)
 
+    def _build_coaches_tab(self) -> None:
+        tab = ttk.Frame(self.nb, padding=6)
+        self.nb.add(tab, text="  Coaches  ")
+        self.coach_tab = tab
+        top = ttk.Frame(tab)
+        top.pack(fill="x", pady=(0, 6))
+        ttk.Label(top, text="Show:").pack(side="left")
+        self.coach_filter_var = tk.StringVar(value=co.FILTERS[0])
+        box = tip(ttk.Combobox(top, textvariable=self.coach_filter_var, values=co.FILTERS, state="readonly",
+                               width=32), "Expiry bands count from today. A coach shows in a band when any of "
+                                          "their First Aid, Safeguarding or DBS falls in it.")
+        box.pack(side="left", padx=(4, 12))
+        box.bind("<<ComboboxSelected>>", lambda _e: self._fill_coaches_tab())
+        self.coach_wa_button = tip(ttk.Button(top, text="Send reminder on WhatsApp...",
+                                              command=self.send_coach_reminder),
+                                   "Select a coach with something expired or expiring, then click: a message saying "
+                                   "what is expiring, with what to do for you to fill in, ready to send on WhatsApp.")
+        self.coach_wa_button.pack(side="right", anchor="n", padx=(8, 0))
+        autowrap(ttk.Label(top, style="Hint.TLabel", justify="left", text=(
+            "Team officials from the FA Team Qualifications Report, with their First Aid, Safeguarding and DBS "
+            "expiry, compared with your managers or club officials file. Each row is coloured by its most urgent "
+            "certificate: red expired, light red within 1 month, orange 1 to 3 months, yellow 3 to 6 months, "
+            "green 6 months or more, grey not held."))
+                 ).pack(side="left", fill="x", expand=True)
+        self.coach_summary_var = tk.StringVar()
+        autowrap(ttk.Label(tab, textvariable=self.coach_summary_var, style="Warn.TLabel")).pack(fill="x", pady=(0, 4))
+        self.coach_search_var, self.coach_count_var = tk.StringVar(), tk.StringVar()
+        self._search_row(tab, self.coach_search_var, self.coach_count_var,
+                         "Type part of a name, team or qualification to narrow the list.",
+                         "Click a column heading to sort. Double-click a row for full details.")
+        self.coach_tree = self._make_tree(tab)
+        self.coach_placeholder = self.placeholders[-1]
+        self.coach_placeholder.configure(text="No coaches yet\n\nChoose the FA Team Qualifications Report in Step 1 "
+                                              "(with or without\nthe player files), then click Reconcile.")
+        for band, colour in co.WINDOW_COLOURS.items():
+            self.coach_tree.tag_configure(_band_tag(band), background=colour)
+        self._register_table(self.coach_tree, self.coach_search_var, self.coach_count_var)
+
+    def _load_coaches(self) -> bool:
+        """Read the FA qualifications report (if chosen) and compare it with the managers / officials file."""
+        qual = self.qual_var.get().strip()
+        self.coaches = None
+        if qual:
+            try:
+                result = co.load_qualifications(qual)
+            except (rc.ReportError, OSError) as exc:
+                messagebox.showwarning("FA qualifications report not used", str(exc))
+                self._fill_coaches_tab()
+                return False
+            staff_path = self.staff_var.get().strip()
+            officials = club_pdf.load_officials(staff_path) if staff_path and os.path.isfile(staff_path) else []
+            if not officials and self.result is not None:
+                officials = club_pdf.officials_from_staff(self.result)
+            self.coaches = co.reconcile_coaches(result, officials)
+            self.cfg["qual_path"] = qual
+        self._fill_coaches_tab()
+        return self.coaches is not None
+
+    def _fill_coaches_tab(self) -> None:
+        if self.coaches is None:
+            self._set_table(self.coach_tree, co.COACH_HEADERS, [])
+            self.coach_summary_var.set("")
+            return
+        self.coach_placeholder.place_forget()
+        headers, rows = co.coach_rows(self.coaches, self.coach_filter_var.get())
+        self._set_table(self.coach_tree, headers, [(v, (_band_tag(band),), None, "") for v, band in rows], cap=360)
+        totals = dict(co.coaches_totals(self.coaches))
+        parts = [f"{len(self.coaches.coaches)} team officials: {totals['Expired']} expired",
+                 f"{totals['Not held']} not held",
+                 f"{totals['Expires within 1 month']} expire within 1 month",
+                 f"{totals['Expires in 1 to 3 months']} in 1 to 3 months",
+                 f"{totals['Expires in 3 to 6 months']} in 3 to 6 months",
+                 f"{totals['All three in date for 6 months or more']} all in date for 6 months or more"]
+        incomplete = [t.team for t in self.coaches.teams if t.complete.lower() == "incomplete"]
+        if incomplete:
+            parts.append("FA says no qualified coach/manager for: " + ", ".join(incomplete))
+        if self.coaches.officials_checked:
+            if self.coaches.not_in_fa:
+                parts.append("In the officials file but not the FA report: "
+                             + ", ".join(f"{n} ({t})" for n, _r, t in self.coaches.not_in_fa))
+        else:
+            parts.append("Choose a managers or club officials file to check it against the FA report")
+        self.coach_summary_var.set(", ".join(parts[:6]) + ".  " + ".  ".join(parts[6:]) + ("." if parts[6:] else ""))
+
+    def send_coach_reminder(self) -> None:
+        """A WhatsApp reminder for the selected coach: what is expiring, and placeholder steps to fill in."""
+        if self.coaches is None:
+            messagebox.showinfo("No coaches yet", "Choose the FA qualifications report in Step 1 and click "
+                                                  "Reconcile first.")
+            return
+        sel = self.coach_tree.selection()
+        if not sel:
+            messagebox.showinfo("Choose a coach", "Click a coach in the list first, then Send reminder on "
+                                                  "WhatsApp.")
+            return
+        name = self.coach_tree.item(sel[0], "values")[0]
+        coach = next((c for c in self.coaches.coaches if c.name == name), None)
+        if coach is None:
+            return
+        if not co.needs_reminder(coach, date.today()):
+            messagebox.showinfo("Nothing to remind", f"{coach.name}'s First Aid, Safeguarding and DBS all run for "
+                                                     "6 months or more.")
+            return
+        win = tk.Toplevel(self)
+        win.title(f"WhatsApp reminder: {coach.name}")
+        win.geometry("600x520")
+        win.minsize(420, 320)
+        autowrap(ttk.Label(win, style="Hint.TLabel", wraplength=560, justify="left", text=(
+            "Replace the [What to do: ...] text with what this coach needs to do, then send. The message goes to "
+            "WhatsApp in the link, so send it only to this coach.")), 20).pack(fill="x", padx=10, pady=8)
+        row = ttk.Frame(win)  # packed before the text so the buttons stay visible when the window is small
+        row.pack(fill="x", padx=10, pady=8, side="bottom")
+        box = tk.Text(win, wrap="word", font=FONT, undo=True)
+        box.insert("1.0", co.reminder_message(coach, date.today()))
+        box.pack(fill="both", expand=True, padx=10)
+
+        def text() -> str:
+            return box.get("1.0", "end").strip()
+
+        def send() -> None:
+            link = rc.whatsapp_link(coach.phone, text())
+            if link:
+                webbrowser.open(link)
+                self.status_var.set(f"Opening WhatsApp at {coach.name}'s chat. Check the message, then press send.")
+
+        def copy() -> None:
+            self.clipboard_clear()
+            self.clipboard_append(text())
+            self.status_var.set("Copied. Paste it into WhatsApp.")
+
+        if rc.whatsapp_number(coach.phone):
+            tip(ttk.Button(row, text=f"Send to {coach.name.split()[0]} on WhatsApp...", style="Accent.TButton",
+                           command=send), "Opens WhatsApp (app or WhatsApp Web) at this coach's chat with the message "
+                                          "ready. Check it, then press send.").pack(side="left")
+        else:
+            ttk.Label(row, style="Warn.TLabel", text="No phone number for this coach in the officials file: "
+                                                     "copy the text instead.").pack(side="left")
+        ttk.Button(row, text="Copy", command=copy).pack(side="left", padx=8)
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
+
+    def _run_coaches_only(self) -> None:
+        """Reconcile with only the FA qualifications report (no player files)."""
+        if self.busy:
+            return
+        self.config(cursor="watch")
+        self.update_idletasks()
+        try:
+            ok = self._load_coaches()
+        finally:
+            self.config(cursor="")
+        if not ok:
+            return
+        self.run_files = (self.fa_var.get().strip(), self.thrive_var.get().strip(), self.staff_var.get().strip(),
+                          self.qual_var.get().strip())
+        self.run_state_var.set(f"Last run {datetime.now():%H:%M}")
+        self.run_state_label.configure(style="Hint.TLabel")
+        self.pdf_button.state(["!disabled"])
+        self.nb.select(self.coach_tab)
+        self.hint_var.set(f"Coaches only: read {len(self.coaches.coaches)} team officials from the FA "
+                          "qualifications report. Choose the Thrive export too to check players.")
+        self.status_var.set(f"Coaches checked at {date.today():%d/%m/%Y}   |   "
+                            f"{os.path.basename(self.qual_var.get().strip())}")
+        save_config(self.cfg)
+
     def _build_not_paying_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
         self.nb.add(tab, text="  Not paying  ")
@@ -994,6 +1173,9 @@ class App(tk.Tk):
             found = rc.find_latest_exports(folder)
         finally:
             self.config(cursor="")
+        qual = co.find_latest_qualifications(folder)
+        if qual:
+            self.qual_var.set(qual)
         if "fa" in found:
             self.fa_var.set(found["fa"])
         if "thrive" in found:
@@ -1015,10 +1197,15 @@ class App(tk.Tk):
             fa_path, thrive_path = "", fa_path  # a lone Thrive export chosen in the FA box
             self.fa_var.set("")
             self.thrive_var.set(thrive_path)
+        qual_path = self.qual_var.get().strip()
+        if not thrive_path and not fa_path and qual_path:
+            self._run_coaches_only()
+            return
         if not os.path.isfile(thrive_path) or (fa_path and not os.path.isfile(fa_path)):
             messagebox.showinfo("Choose your files",
                                 "Please choose the Thrive data export first. The FA registration report is "
                                 "optional: without it, FA registration is not checked.\n\n"
+                                "To check coaches only, choose just the FA qualifications report.\n\n"
                                 "Or click \"Find my latest exports\".")
             return
         if self.busy:
@@ -1146,8 +1333,10 @@ class App(tk.Tk):
             messagebox.showwarning("Managers file not used",
                                    f"{staff_error}\n\nThe comparison carried on without it.")
         for note in self.placeholders:
-            note.place_forget()
-        self.run_files = (fa_path, thrive_path, self.staff_var.get().strip())
+            if note is not self.coach_placeholder:
+                note.place_forget()
+        self.run_files = (fa_path, thrive_path, self.staff_var.get().strip(), self.qual_var.get().strip())
+        coaches_loaded = self._load_coaches()
         self.run_state_var.set(f"Last run {datetime.now():%H:%M}")
         self.run_state_label.configure(style="Hint.TLabel")
         self._set_exports_enabled(True)
@@ -1159,6 +1348,8 @@ class App(tk.Tk):
             + "Pick a view on the left of the Results tab. Double-click any row for the full details."
         if added:
             msg += f" {added} new Thrive team(s) were matched automatically."
+        if coaches_loaded:
+            msg += f" Coaches tab: {len(self.coaches.coaches)} team officials from the FA qualifications report."
         if missing and not thrive_only:  # a Thrive-only run uses Thrive's own team names
             msg += f" {len(missing)} Thrive team(s) need a decision on the Team mappings tab."
             self.nb.select(self.map_tab)
@@ -1193,7 +1384,8 @@ class App(tk.Tk):
         """Warn that the results on screen come from different files to the ones now chosen."""
         if self.run_files is None or self.busy:
             return
-        now = (self.fa_var.get().strip(), self.thrive_var.get().strip(), self.staff_var.get().strip())
+        now = (self.fa_var.get().strip(), self.thrive_var.get().strip(), self.staff_var.get().strip(),
+               self.qual_var.get().strip())
         if now != self.run_files:
             self.run_state_var.set("Files changed:\nclick Reconcile again")
             self.run_state_label.configure(style="Warn.TLabel")
@@ -1671,14 +1863,19 @@ class App(tk.Tk):
 
     def export_club_pdf(self) -> None:
         """Every team with its coaches and players (in FA, in Thrive, paying) as a PDF on the club template."""
-        if not self._need_result() or not self._confirm_export(False):
+        if self.result is None and self.coaches is None:
+            messagebox.showinfo("Nothing to export yet", "Choose your files and click Reconcile first.")
+            return
+        if not self._confirm_export(False):
             return
         path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF document", "*.pdf")],
                                             initialfile=f"Teams_and_players_{date.today():%Y-%m-%d}.pdf")
         staff_path = self.staff_var.get().strip()  # managers or club officials file, for the officials page
         officials = club_pdf.load_officials(staff_path) if staff_path and os.path.isfile(staff_path) else []
-        if path and self._write(lambda: club_pdf.export_club_pdf(path, self.result, officials=officials),
-                                f"Saved {path}"):
+        if not officials and self.result is not None:
+            officials = club_pdf.officials_from_staff(self.result)
+        if path and self._write(lambda: club_pdf.export_club_pdf(path, self.result, officials=officials,
+                                                                  coaches=self.coaches), f"Saved {path}"):
             if messagebox.askyesno("Saved", f"Saved the club PDF:\n{path}\n\nOpen it now?"):
                 open_folder(path)
 
