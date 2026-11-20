@@ -1675,7 +1675,10 @@ class App(tk.Tk):
             return
         path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF document", "*.pdf")],
                                             initialfile=f"Teams_and_players_{date.today():%Y-%m-%d}.pdf")
-        if path and self._write(lambda: club_pdf.export_club_pdf(path, self.result), f"Saved {path}"):
+        staff_path = self.staff_var.get().strip()  # managers or club officials file, for the officials page
+        officials = club_pdf.load_officials(staff_path) if staff_path and os.path.isfile(staff_path) else []
+        if path and self._write(lambda: club_pdf.export_club_pdf(path, self.result, officials=officials),
+                                f"Saved {path}"):
             if messagebox.askyesno("Saved", f"Saved the club PDF:\n{path}\n\nOpen it now?"):
                 open_folder(path)
 

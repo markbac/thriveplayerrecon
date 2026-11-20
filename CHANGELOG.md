@@ -4,6 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-20
+
+### Changed
+- Club PDF: the header uses the app's club logo and the Accredited Club / Lancashire FA badges; the footer shows only when the PDF was generated and the page number (the confidentiality note moves to the summary page); each coach is listed on their own line; U4, U5 and U6 ages are shown in years and months (for example `4y 7m`); training groups come after all the other teams
+- Club PDF: a **Club summary** on the first page with the number of players in the club, each counted once even when they play in two teams, how many play in two or more teams (for example Saturday and Sunday; training groups do not count), team places, and how many are in the FA report, in Thrive, paying and not paying
+- Club PDF: a **Club officials** page after the summary, with the Club President, the executive committee (vacant roles highlighted) and each team's managers and assistants, plus officials counts in the summary. It reads the managers file, which can now also be the **club officials file** (Name, Role, Second role, Exec Member, Team(s)); age-group roles such as `U5 Lead` and `U05 Assistant` are shown on the U4-U6 team pages. The existing managers file layouts still work
+- Club PDF: the "Managers file notes" (teams with no manager listed) are no longer printed
+
 ## [1.9.0] - 2026-11-20
 
 ### Added

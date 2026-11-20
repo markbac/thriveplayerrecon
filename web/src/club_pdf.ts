@@ -1,13 +1,13 @@
 /// <reference types="vite/client" />
 /**
  * Club teams PDF: every team with its coaches and players, and whether each player is in the FA, in Thrive and
- * paying. Laid out on the WWFC document template (club badge, name and Accredited Club logo in the header;
- * issue, page and date details in the footer). Built in the browser with pdf-lib: nothing is sent anywhere.
+ * paying. Laid out on the WWFC document template: the app's club logo, the club name and the Accredited Club /
+ * Lancashire FA badges in the header; the generated date and time and page number in the footer. Built in the browser with pdf-lib: nothing is sent anywhere.
  * Mirrors src/club_pdf.py (web-only module, so it is not part of the reconcile_core parity tests).
  */
 import { PDFDocument, PDFFont, PDFImage, PDFPage, StandardFonts, rgb, RGB } from 'pdf-lib';
-import badgeUrl from './assets/club_badge.jpg?inline';
-import accreditedUrl from './assets/accredited_club.png?inline';
+import logoUrl from './assets/club_logo.png?inline';
+import badgesUrl from './assets/fa_badges.png?inline';
 import * as rc from './reconcile_core';
 
 export const CLUB_NAME = 'Wilpshire Wanderers Football Club';
@@ -32,6 +32,165 @@ export interface TeamSummary {
   not_paying: number;
 }
 
+/** A person (or an unfilled role) from the club officials file or the managers file. */
+export interface Official {
+  name: string; // '' for a vacant role
+  role: string;
+  second_role: string;
+  exec_member: boolean;
+  teams: string[];
+}
+
+const rolesOf = (o: Official) => [o.role, o.second_role].filter(Boolean);
+const AGE_ROLE = /^u0*(\d+)\s+(lead|head coach|manager|coach|assistant|asst)\b/i;
+
+/** 'manager' or 'assistant' for a team role (Manager, Assistant manager, Coach, 'U5 Lead'), else null. */
+function teamRole(role: string): 'manager' | 'assistant' | null {
+  const r = role.toLowerCase();
+  if (['assist', 'asst', 'deputy'].some((w) => r.includes(w))) return 'assistant';
+  if (r.includes('manager') || r.includes('coach') || /\blead\b/.test(r)) return 'manager';
+  return null;
+}
+
+const isYes = (v: string) => ['yes', 'y', 'true', 'x', '1', '\u2713', '\u2714'].includes(v.trim().toLowerCase());
+
+/** People from a club officials file: Name, Role, and optionally Second role, Exec Member and Team(s). The existing
+ * one-row-per-person managers file has the same Name / Role / Team(s) columns, so it works too. Rows with a role but
+ * no name are kept as vacant roles. Returns [] for a one-row-per-team managers file. */
+export function parse_officials(sheets: unknown[][][]): Official[] {
+  for (const rows of sheets) {
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const cols: Record<string, number> = {};
+      (rows[i] || []).forEach((c, j) => {
+        const h = rc._hdr(c);
+        if (h && !(h in cols)) cols[h] = j;
+      });
+      const nameI = rc._find_col(cols, ['name', 'full name', 'person', 'staff']);
+      const roleI = rc._find_col(cols, ['role', 'position', 'job']);
+      if (nameI === null || roleI === null) continue;
+      const secondI = rc._find_col(cols, ['second role', 'other role', 'additional role', 'role 2', 'also']);
+      const execI = rc._find_col(cols, ['exec member', 'exec', 'executive', 'executive member', 'committee',
+        'exec committee', 'committee member']);
+      const teamI = rc._find_col(cols, rc.TEAM_HEADERS);
+      const out: Official[] = [];
+      for (const r of rows.slice(i + 1)) {
+        const name = rc._cell(r, nameI);
+        let role = rc._cell(r, roleI);
+        const second = secondI !== null ? rc._cell(r, secondI) : '';
+        const teams = teamI !== null ? rc._split_list(rc._cell(r, teamI)) : [];
+        if (!(name || role || second)) continue;
+        if (name && !role && teams.length && !teamRole(second)) role = 'Manager'; // as the managers file reads it
+        out.push({ name, role, second_role: second, exec_member: execI !== null && isYes(rc._cell(r, execI)), teams });
+      }
+      if (out.length) return out;
+    }
+  }
+  return [];
+}
+
+/** Managers and assistants from the managers file already attached to the result (any layout). */
+export function officials_from_staff(result: rc.Result): Official[] {
+  const seen = new Map<string, Official>();
+  for (const label of rc.team_labels(result)) {
+    for (const p of result.staff[label] || []) {
+      const key = `${p.name.toLowerCase()}\u0000${p.role.toLowerCase()}`;
+      if (!seen.has(key)) seen.set(key, { name: p.name, role: p.role, second_role: '', exec_member: false, teams: [] });
+      seen.get(key)!.teams.push(label);
+    }
+  }
+  return [...seen.values()];
+}
+
+export interface OfficialsSummary {
+  president: string[];
+  executive: Array<[string, string, string]>; // [role, name or 'Vacant', also]
+  teams: Array<[string, string[], string[]]>; // [team, managers, assistants]
+  others: Array<[string, string, string]>;
+}
+
+const EXEC_ORDER = ['chair', 'vice', 'secretary', 'treasurer', 'welfare'];
+function execRank(role: string): number {
+  const r = role.toLowerCase();
+  const i = EXEC_ORDER.findIndex((w) => r.includes(w) && !(w === 'chair' && r.includes('vice')));
+  return i < 0 ? EXEC_ORDER.length : i;
+}
+const isPresident = (role: string) => /president/i.test(role) && !/vice/i.test(role);
+const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** The president, the executive committee, each team's managers and assistants, and anyone else. */
+export function officials_summary(officials: Official[]): OfficialsSummary {
+  const out: OfficialsSummary = { president: [], executive: [], teams: [], others: [] };
+  const teams = new Map<string, [string, string[], string[]]>(); // team form -> [display, managers, assistants]
+  const addTeam = (team: string, kind: 'manager' | 'assistant', name: string) => {
+    const form = rc._team_form(team, '');
+    if (!teams.has(form)) teams.set(form, [team, [], []]);
+    const names = teams.get(form)![kind === 'manager' ? 1 : 2];
+    if (!names.includes(name)) names.push(name);
+  };
+  for (const o of officials) {
+    let clubRoles: string[] = [];
+    for (const role of rolesOf(o)) {
+      const age = AGE_ROLE.exec(role);
+      const kind = teamRole(role);
+      if (age) {
+        if (o.name) addTeam(`U${Number(age[1])}`, kind ?? 'manager', o.name);
+      } else if (kind) {
+        if (o.name) for (const team of o.teams) addTeam(team, kind, o.name);
+      } else {
+        clubRoles.push(role);
+      }
+    }
+    if (o.name && clubRoles.some(isPresident)) {
+      out.president.push(o.name);
+      clubRoles = clubRoles.filter((r) => !isPresident(r));
+    }
+    if (!clubRoles.length) continue;
+    const also = rolesOf(o)
+      .filter((r) => !clubRoles.includes(r))
+      .map((r) => r + (teamRole(r) && !AGE_ROLE.test(r) && o.teams.length ? ` (${o.teams.join(', ')})` : ''))
+      .join(', ');
+    const entry: [string, string, string] = [clubRoles.join(' / '), o.name || 'Vacant', also];
+    (o.exec_member ? out.executive : out.others).push(entry);
+  }
+  out.executive.sort((a, b) => Number(a[1] === 'Vacant') - Number(b[1] === 'Vacant') ||
+    execRank(a[0]) - execRank(b[0]) || cmp(a[0].toLowerCase(), b[0].toLowerCase()));
+  out.others.sort((a, b) => cmp(a[0].toLowerCase(), b[0].toLowerCase()));
+  const teamKey = (form: string) => rc._team_age_limit(teams.get(form)![0]) ?? 999;
+  out.teams = [...teams.keys()]
+    .sort((a, b) => teamKey(a) - teamKey(b) || cmp(a, b))
+    .map((f) => teams.get(f)!);
+  return out;
+}
+
+/** Counts for the summary page: people, executive roles (and how many are vacant), managers, assistants. */
+export function officials_totals(officials: Official[]): Array<[string, number]> {
+  const summary = officials_summary(officials);
+  const people = new Set(officials.filter((o) => o.name.trim()).map((o) => o.name.trim().toLowerCase()));
+  const managers = new Set(summary.teams.flatMap(([, m]) => m));
+  const assistants = new Set(summary.teams.flatMap(([, , a]) => a));
+  const out: Array<[string, number]> = [['Club officials (people)', people.size]];
+  if (summary.executive.length) {
+    out.push(['Executive committee roles', summary.executive.length]);
+    const vacant = summary.executive.filter(([, n]) => n === 'Vacant').length;
+    if (vacant) out.push(['Executive committee roles vacant', vacant]);
+  }
+  out.push(['Managers and team leads', managers.size], ['Assistant managers', assistants.size]);
+  return out;
+}
+
+/** Leads and assistants named by age group in the officials file ('U5 Lead') for a U4-U6 team. */
+function ageGroupStaff(officials: Official[], label: string): Array<[string, string]> {
+  const limit = rc._team_age_limit(label);
+  const out: Array<[string, string]> = [];
+  for (const o of officials) {
+    for (const role of rolesOf(o)) {
+      const m = AGE_ROLE.exec(role);
+      if (o.name && m && Number(m[1]) === limit) out.push([role, o.name]);
+    }
+  }
+  return out.sort((a, b) => Number(teamRole(a[0]) !== 'manager') - Number(teamRole(b[0]) !== 'manager'));
+}
+
 export function fa_cell(source: string, row: rc.Row): string {
   if (source === rc.NO_FA) return 'Not needed';
   if (source === rc.FA_NOT_CHECKED) return 'Not checked';
@@ -46,16 +205,23 @@ export function paying_cell(row: rc.Row): string {
   return status.startsWith('Unknown') ? 'Unknown' : 'Not expected';
 }
 
+/** '4y 7m': age in whole years and months, used for the youngest groups (U4-U6). */
+export function age_years_months(dob: rc.LocalDate, today: rc.LocalDate): string {
+  const months = (today.year - dob.year) * 12 + today.month - dob.month - (today.day < dob.day ? 1 : 0);
+  return `${Math.floor(months / 12)}y ${months % 12}m`;
+}
+
 function surnameKey(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   return `${(parts[parts.length - 1] || '').toLowerCase()}\u0000${name.toLowerCase()}`;
 }
 
-/** One TeamSummary per team, in age-group order, players sorted by surname. */
-export function club_summary(result: rc.Result, today?: rc.LocalDate): TeamSummary[] {
+/** One TeamSummary per team, in age-group order with training groups last, players sorted by surname. */
+export function club_summary(result: rc.Result, today?: rc.LocalDate, officials: Official[] = []): TeamSummary[] {
   const day = today ?? rc.todayLocalDate();
   const out: TeamSummary[] = [];
-  for (const label of rc.team_labels(result)) {
+  const labels = [...rc.team_labels(result)].sort((a, b) => Number(isTraining(a)) - Number(isTraining(b))); // stable
+  for (const label of labels) {
     const t: TeamSummary = { label, staff: [], players: [], in_fa: 0, in_thrive: 0, paying: 0, not_paying: 0 };
     const people = result.staff[label] || [];
     const roles: Array<['manager' | 'assistant' | 'other', string]> = [
@@ -70,8 +236,14 @@ export function club_summary(result: rc.Result, today?: rc.LocalDate): TeamSumma
         }
       }
     }
+    if (officials.length && rc.no_fa_age_group(label)) {
+      // 'U5 Lead' and similar in the officials file
+      const named = new Set(t.staff.map(([, n]) => n));
+      t.staff.push(...ageGroupStaff(officials, label).filter(([, n]) => !named.has(n)));
+    }
     for (const [source, row] of result.teams[label] || []) {
-      const [name, , age] = rc._name_dob(row, day);
+      const [name, dob, years] = rc._name_dob(row, day);
+      const age = dob && rc.no_fa_age_group(label) ? age_years_months(dob, day) : years;
       const fa = fa_cell(source, row);
       const paying = paying_cell(row);
       t.players.push([name, String(age), fa, row.th ? 'Yes' : 'No', paying]);
@@ -83,6 +255,39 @@ export function club_summary(result: rc.Result, today?: rc.LocalDate): TeamSumma
     t.players.sort((a, b) => (surnameKey(a[0]) < surnameKey(b[0]) ? -1 : surnameKey(a[0]) > surnameKey(b[0]) ? 1 : 0));
     out.push(t);
   }
+  return out;
+}
+
+const isTraining = (label: string) => label.toLowerCase().includes('training');
+
+/** Club-wide counts with each player counted once, even when they play in two teams (Saturday and Sunday).
+ * Training groups do not count as a second team. */
+export function club_totals(result: rc.Result): Array<[string, number]> {
+  const teamsOf = new Map<rc.Row, Set<string>>();
+  for (const [label, members] of Object.entries(result.teams)) {
+    for (const [, row] of members) {
+      if (!teamsOf.has(row)) teamsOf.set(row, new Set());
+      teamsOf.get(row)!.add(label);
+    }
+  }
+  const rows = [...teamsOf.keys()];
+  const paying = rows.map(paying_cell);
+  const count = (v: string) => paying.filter((p) => p === v).length;
+  const out: Array<[string, number]> = [
+    ['Players in the club (each counted once)', rows.length],
+    [
+      'Playing in two or more teams (e.g. Saturday and Sunday)',
+      [...teamsOf.values()].filter((labels) => [...labels].filter((x) => !isTraining(x)).length > 1).length,
+    ],
+    ['Team places (a player in two teams counts twice)', Object.values(result.teams).reduce((n, m) => n + m.length, 0)],
+  ];
+  if (result.fa_checked) out.push(['In the FA report', rows.filter((r) => r.fa !== null).length]);
+  out.push(
+    ['In Thrive', rows.filter((r) => r.th !== null).length],
+    ['Paying through Thrive', count('Yes')],
+    ['Not paying', count('No')]
+  );
+  if (count('Unknown')) out.push(['Paying not known (no mandate column in the Thrive export)', count('Unknown')]);
   return out;
 }
 
@@ -231,34 +436,36 @@ class Writer {
   }
 }
 
-function chrome(page: PDFPage, f: Fonts, badge: PDFImage, accredited: PDFImage, n: number, total: number,
-  now: Date, issue: string): void {
+function chrome(page: PDFPage, f: Fonts, logo: PDFImage, badges: PDFImage, n: number, total: number,
+  now: Date): void {
   const [width, height] = A4;
   const top = height - 1.25 * CM; // header distance 708 twips
-  page.drawImage(badge, { x: MARGIN - 0.85 * CM, y: top - 1.9 * CM, width: 1.95 * CM, height: 1.84 * CM });
-  page.drawImage(accredited, { x: MARGIN + 13.7 * CM, y: top - 2.07 * CM, width: 3.94 * CM, height: 2.07 * CM });
+  // the app's club logo left (pulled into the margin as in the template), FA badges right
+  page.drawImage(logo, { x: MARGIN - 0.85 * CM, y: top - 1.95 * CM, width: 1.95 * CM, height: 1.95 * CM });
+  const badgesH = 2.05 * CM;
+  const badgesW = (badgesH * badges.width) / badges.height;
+  page.drawImage(badges, { x: width - MARGIN + 1.0 * CM - badgesW, y: top - badgesH, width: badgesW, height: badgesH });
   const x = MARGIN + 1.3 * CM;
   page.drawText(CLUB_NAME, { x, y: top - 0.75 * CM, size: 21, font: f.regular }); // Helvetica runs wider than Calibri
   page.drawText(CLUB_LINES[0], { x, y: top - 1.3 * CM, size: 11, font: f.italic });
   page.drawText(CLUB_LINES[1], { x, y: top - 1.8 * CM, size: 11, font: f.italic });
-  const y1 = 1.75 * CM;
-  const y2 = 1.25 * CM;
-  const right = (s: string, y: number, font = f.regular, size = 11) =>
-    page.drawText(s, { x: width - MARGIN - font.widthOfTextAtSize(s, size), y, size, font });
-  const centre = (s: string, y: number, font = f.regular, size = 11, color = BLACK) =>
-    page.drawText(s, { x: (width - font.widthOfTextAtSize(s, size)) / 2, y, size, font, color });
-  page.drawText(`Issue: ${issue}`, { x: MARGIN, y: y1, size: 11, font: f.regular });
-  centre(`Page: ${n} of ${total}`, y1);
-  right(`Issue Date: ${ukDate(now)}`, y1);
-  page.drawText(`Doc: ${DOC_REF}`, { x: MARGIN, y: y2, size: 11, font: f.regular });
-  right(`Generated: ${ukDate(now)} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`, y2);
-  centre(CONFIDENTIAL, y2 - 0.5 * CM, f.bold, 8, RED);
+  // footer: when it was generated, and the page number
+  const y = 1.25 * CM;
+  page.drawText(`Generated: ${ukDate(now)} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
+    { x: MARGIN, y, size: 10, font: f.regular });
+  const pageText = `Page ${n} of ${total}`;
+  page.drawText(pageText, { x: width - MARGIN - f.regular.widthOfTextAtSize(pageText, 10), y, size: 10, font: f.regular });
 }
 
 /** The teams PDF as bytes, ready to download. */
-export async function buildClubPdf(result: rc.Result, now: Date = new Date(), issue = '1.0'): Promise<Uint8Array> {
+export async function buildClubPdf(
+  result: rc.Result,
+  now: Date = new Date(),
+  officialsIn: Official[] = []
+): Promise<Uint8Array> {
+  const officials = officialsIn.length ? officialsIn : officials_from_staff(result);
   const today = rc.makeDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
-  const teams = club_summary(result, today);
+  const teams = club_summary(result, today, officials);
   const doc = await PDFDocument.create();
   doc.setTitle(`${CLUB_NAME}: ${DOC_TITLE}`);
   doc.setAuthor(CLUB_NAME);
@@ -270,8 +477,8 @@ export async function buildClubPdf(result: rc.Result, now: Date = new Date(), is
     bold: await doc.embedFont(StandardFonts.HelveticaBold),
     italic: await doc.embedFont(StandardFonts.HelveticaOblique),
   };
-  const badge = await doc.embedJpg(dataUrlBytes(badgeUrl));
-  const accredited = await doc.embedPng(dataUrlBytes(accreditedUrl));
+  const logo = await doc.embedPng(dataUrlBytes(logoUrl));
+  const badges = await doc.embedPng(dataUrlBytes(badgesUrl));
   const w = new Writer(doc, f);
 
   w.text(DOC_TITLE, 18, f.bold, HEAD, 4);
@@ -281,14 +488,18 @@ export async function buildClubPdf(result: rc.Result, now: Date = new Date(), is
   if (!result.fa_checked) {
     w.text('No FA report was loaded for this run, so FA registration was not checked.', 10.5, f.regular);
   }
-  const total = teams.reduce((n, t) => n + t.players.length, 0);
-  const paying = teams.reduce((n, t) => n + t.paying, 0);
-  const notPaying = teams.reduce((n, t) => n + t.not_paying, 0);
-  w.text(`${teams.length} teams, ${total} player places, ${paying} paying through Thrive, ${notPaying} not paying.`,
-    10.5, f.bold, BLACK, 8);
+  w.y -= 4;
+  w.table(['Club summary', ''], club_totals(result).map(([name, n]) => [name, String(n)]), [0.72, 0.14],
+    (_r, c) => (c === 1 ? STRIPE : null));
+  if (officials.length) {
+    w.y += 8; // joined to the table above
+    w.table(['Club officials', ''], officials_totals(officials).map(([name, n]) => [name, String(n)]), [0.72, 0.14],
+      (_r, c) => (c === 1 ? STRIPE : null));
+  }
+  w.text(`${teams.length} teams`, 10.5, f.bold, BLACK, 4);
   const summary = teams.map((t) => [
     t.label,
-    t.staff.filter(([role]) => role === 'Manager').map(([, n]) => n).join(', ') || '-',
+    t.staff.filter(([role]) => teamRole(role) === 'manager').map(([, n]) => n).join(', ') || '-',
     String(t.players.length),
     result.fa_checked ? String(t.in_fa) : '-',
     String(t.in_thrive),
@@ -299,23 +510,47 @@ export async function buildClubPdf(result: rc.Result, now: Date = new Date(), is
     [0.22, 0.28, 0.1, 0.09, 0.11, 0.1, 0.1],
     (r, c) => (c === 6 ? (teams[r].not_paying ? BAD : GOOD) : r % 2 === 1 ? STRIPE : null));
   w.text(PDF_NOTE, 9, f.regular, GREY);
-  if (result.staff_issues.length) {
-    w.text('Managers file notes: ' + result.staff_issues.join('; '), 9, f.regular, GREY);
+  w.text(CONFIDENTIAL, 9, f.bold, RED);
+
+  if (officials.length) {
+    // club officials page: president, executive committee, managers and assistants
+    const summary = officials_summary(officials);
+    w.newPage();
+    w.text('Club officials', 18, f.bold, HEAD, 4);
+    if (summary.president.length) w.text(`Club President: ${summary.president.join(', ')}`, 10.5, f.bold, BLACK, 8);
+    if (summary.executive.length) {
+      w.text('Executive committee', 14, f.bold, HEAD, 2);
+      w.table(['Role', 'Name', 'Also'], summary.executive.map((e) => [...e]), [0.4, 0.25, 0.35],
+        (r, c) => (c === 1 && summary.executive[r][1] === 'Vacant' ? WARN : null));
+    }
+    if (summary.teams.length) {
+      w.text('Managers and assistants', 14, f.bold, HEAD, 2);
+      w.table(['Team', 'Manager / lead', 'Assistant(s)'],
+        summary.teams.map(([team, m, a]) => [team, m.join(', ') || '-', a.join(', ') || '-']), [0.26, 0.37, 0.37],
+        (r) => (r % 2 === 1 ? STRIPE : null));
+    }
+    if (summary.others.length) {
+      w.text('Other club roles', 14, f.bold, HEAD, 2);
+      w.table(['Role', 'Name', 'Also'], summary.others.map((e) => [...e]), [0.4, 0.25, 0.35], () => null);
+    }
   }
 
   for (const t of teams) {
     w.newPage();
     w.text(t.label, 14, f.bold, HEAD, 2);
-    const staff = t.staff.map(([role, name]) => `${role}: ${name}`).join('; ') ||
-      'No coaches listed (add a managers file)';
-    w.text(`Coaches: ${staff}`, 10.5, f.regular, BLACK, 2);
-    w.text(`${t.players.length} players: ${t.in_fa} in FA, ${t.in_thrive} in Thrive, ${t.paying} paying, ` +
+    w.text('Coaches:', 10.5, f.bold, BLACK, 0);
+    t.staff.forEach(([role, name], i) => {
+      w.text(`${role}: ${name}${i < t.staff.length - 1 ? ';' : ''}`, 10.5, f.regular, BLACK, 0);
+    });
+    if (!t.staff.length) w.text('No coaches listed (add a managers file)', 10.5, f.regular, BLACK, 0);
+    w.y -= 2;
+    w.text(`${t.players.length} player${t.players.length === 1 ? '' : 's'}: ${t.in_fa} in FA, ${t.in_thrive} in Thrive, ${t.paying} paying, ` +
       `${t.not_paying} not paying.`, 9, f.regular, GREY, 6);
     if (!t.players.length) {
       w.text('No players.', 10.5, f.regular);
       continue;
     }
-    w.table(PDF_HEADERS, t.players, [0.4, 0.08, 0.2, 0.14, 0.18], (r, c) => {
+    w.table(PDF_HEADERS, t.players, [0.37, 0.11, 0.2, 0.14, 0.18], (r, c) => {
       const v = t.players[r][c];
       if (c === 2) {
         if (v === 'No') return BAD;
@@ -328,6 +563,6 @@ export async function buildClubPdf(result: rc.Result, now: Date = new Date(), is
     });
   }
 
-  w.pages.forEach((page, i) => chrome(page, f, badge, accredited, i + 1, w.pages.length, now, issue));
+  w.pages.forEach((page, i) => chrome(page, f, logo, badges, i + 1, w.pages.length, now));
   return doc.save();
 }

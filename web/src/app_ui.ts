@@ -2386,7 +2386,18 @@ export class WebApp {
     if (!this.result) return;
     this.openConfirmModal('Data protection warning', export_warning(false), async () => {
       if (!this.result) return;
-      const bytes = await (await import('./club_pdf')).buildClubPdf(this.result);
+      const clubPdf = await import('./club_pdf');
+      let officials: import('./club_pdf').Official[] = [];
+      if (this.staffFile) {
+        // managers or club officials file, for the officials page; a file that cannot be read is skipped
+        try {
+          const sheets = await (await loadExcelIo()).readWorkbookSheets(this.staffFile.buffer, this.staffFile.name);
+          officials = clubPdf.parse_officials(sheets);
+        } catch {
+          officials = [];
+        }
+      }
+      const bytes = await clubPdf.buildClubPdf(this.result, new Date(), officials);
       const fileName = `Teams_and_players_${todayIsoDate()}.pdf`;
       downloadBlob(bytes, fileName, 'application/pdf');
       this.setStatus(`Downloaded ${fileName}`);
