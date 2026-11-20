@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-11-20
+
+### Changed
+- Club PDF summary: players in the club split into U4 to U6, U7 and over in a team, and U7 and over in training groups only (these add up to the club total); team places no longer count training groups
+- Club PDF: the teams table is now **Squads**, on its own page
+
 ## [1.10.0] - 2026-11-20
 
 ### Added

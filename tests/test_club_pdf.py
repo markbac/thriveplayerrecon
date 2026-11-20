@@ -91,8 +91,25 @@ def test_club_totals_count_each_player_once(tmp_path):
     totals = dict(club_pdf.club_totals(res))
     assert totals["Players in the club (each counted once)"] == 3
     assert totals["Playing in two or more teams (e.g. Saturday and Sunday)"] == 1
-    assert totals["Team places (a player in two teams counts twice)"] == 5
+    assert totals["Team places (a player in two teams counts twice; training groups not counted)"] == 4
+    assert (totals["Of these, U4 to U6"], totals["Of these, U7 and over in a team"], totals["Of these, U7 and over in training groups only"]) \
+        == (0, 3, 0)
     assert totals["Paying through Thrive"] == 2 and totals["Not paying"] == 1
+
+
+def test_club_totals_split_adds_up_to_the_club_total(tmp_path):
+    thrive = write_thrive(tmp_path / "t.xlsx", players=[
+        ("Tia", "Tiny", born(5, 7, 7), "U05 26-27", "Active", {}),
+        ("Amy", "Able", born(11, 2), "U11 White, U12 Black", "Active", {}),
+        ("Tom", "Train", born(8, 2), "U08 Black, U7-8 Training", "Active", {}),
+        ("Una", "Upper", born(10, 4), "U9-10 Training", "Active", {}),
+    ])
+    res = rc.reconcile([], rc.load_thrive(thrive), dict(rc.DEFAULT_TEAM_MAP))
+    totals = dict(club_pdf.club_totals(res))
+    split = (totals["Of these, U4 to U6"], totals["Of these, U7 and over in a team"], totals["Of these, U7 and over in training groups only"])
+    assert split == (1, 2, 1) and sum(split) == totals["Players in the club (each counted once)"] == 4
+    # Tia 1 + Amy 2 + Tom 1 (his training group not counted); Una is in training only
+    assert totals["Team places (a player in two teams counts twice; training groups not counted)"] == 4
 
 
 OFFICIALS_ROWS = [  # invented people, in the club officials file layout

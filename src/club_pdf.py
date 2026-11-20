@@ -287,17 +287,30 @@ def _is_training(label: str) -> bool:
 
 def club_totals(result: rc.Result) -> List[Tuple[str, int]]:
     """Club-wide counts with each player counted once, even when they play in two teams (Saturday and Sunday).
-    Training groups do not count as a second team."""
+    The players split into U4 to U6, U7 and over in a team, and U7 and over in training groups only, which add up
+    to the club total. Training groups are not teams: they do not count as a second team or as team places."""
     teams_of = {}  # id(row) -> (row, team labels)
     for label, members in result.teams.items():
         for _source, row in members:
             teams_of.setdefault(id(row), (row, set()))[1].add(label)
     rows = [row for row, _labels in teams_of.values()]
     paying = [paying_cell(r) for r in rows]
+    groups = {"young": 0, "team": 0, "training": 0}
+    for _r, labels in teams_of.values():
+        if any(rc.no_fa_age_group(x) for x in labels):
+            groups["young"] += 1
+        elif any(not _is_training(x) for x in labels):
+            groups["team"] += 1
+        else:
+            groups["training"] += 1
     out = [("Players in the club (each counted once)", len(rows)),
+           ("Of these, U4 to U6", groups["young"]),
+           ("Of these, U7 and over in a team", groups["team"]),
+           ("Of these, U7 and over in training groups only", groups["training"]),
            ("Playing in two or more teams (e.g. Saturday and Sunday)",
             sum(1 for _r, labels in teams_of.values() if len([x for x in labels if not _is_training(x)]) > 1)),
-           ("Team places (a player in two teams counts twice)", sum(len(m) for m in result.teams.values()))]
+           ("Team places (a player in two teams counts twice; training groups not counted)",
+            sum(len(m) for label, m in result.teams.items() if not _is_training(label)))]
     if result.fa_checked:
         out.append(("In the FA report", sum(1 for r in rows if r.fa is not None)))
     out += [("In Thrive", sum(1 for r in rows if r.th is not None)),
@@ -459,8 +472,8 @@ def export_club_pdf(path: str, result: Optional[rc.Result], today: Optional[date
         table.hAlign = "LEFT"
         story += [Spacer(0, 6), table, Spacer(0, 10)]
     if result is not None:
-        story += [Paragraph(f"<b>{len(teams)} teams</b>", body), Spacer(0, 4)]
-    rows = [["Team", "Manager(s)", "Players", "In FA", "In Thrive", "Paying", "Not paying"]]
+        story += [PageBreak(), Paragraph(f"Squads ({len(teams)})", h1), Spacer(0, 4)]
+    rows = [["Squad", "Manager(s)", "Players", "In FA", "In Thrive", "Paying", "Not paying"]]
     for t in teams:
         managers = ", ".join(n for role, n in t.staff if _team_role(role) == "manager") or "-"
         rows.append([t.label, managers, len(t.players), t.in_fa if result.fa_checked else "-", t.in_thrive,
