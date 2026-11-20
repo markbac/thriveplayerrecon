@@ -74,7 +74,9 @@ describe('club PDF', () => {
     const totals = Object.fromEntries(club_totals(res));
     expect(totals['Players in the club (each counted once)']).toBe(3);
     expect(totals['Playing in two or more teams (e.g. Saturday and Sunday)']).toBe(1);
-    expect(totals['Team places (a player in two teams counts twice)']).toBe(5);
+    expect(totals['Team places (a player in two teams counts twice; training groups not counted)']).toBe(4);
+    expect([totals['Of these, U4 to U6'], totals['Of these, U7 and over in a team'], totals['Of these, U7 and over in training groups only']])
+      .toEqual([0, 3, 0]);
     expect(totals['Paying through Thrive']).toBe(2);
     expect(totals['Not paying']).toBe(1);
   });
@@ -108,7 +110,7 @@ describe('club PDF', () => {
     const res = await sampleResult();
     const bytes = await buildClubPdf(res, new Date(2026, 10, 11, 10, 0));
     const doc = await PDFDocument.load(bytes);
-    expect(doc.getPageCount()).toBe(2 + rc.team_labels(res).length); // summary, officials (from the managers), teams
+    expect(doc.getPageCount()).toBe(3 + rc.team_labels(res).length); // summary, squads, officials (from the managers), teams
     expect(doc.getTitle()).toContain('Teams, coaches and players');
   });
 });
@@ -193,6 +195,6 @@ describe('club officials page', () => {
       ['U5 Assistant', 'Ray Help'],
     ]);
     const doc = await PDFDocument.load(await buildClubPdf(res, new Date(2026, 10, 11, 10, 0), officials));
-    expect(doc.getPageCount()).toBe(2 + rc.team_labels(res).length); // summary, officials, one per team
+    expect(doc.getPageCount()).toBe(3 + rc.team_labels(res).length); // summary, squads, officials, one per team
   });
 });

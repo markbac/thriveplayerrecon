@@ -271,7 +271,8 @@ export function club_summary(result: rc.Result, today?: rc.LocalDate, officials:
 const isTraining = (label: string) => label.toLowerCase().includes('training');
 
 /** Club-wide counts with each player counted once, even when they play in two teams (Saturday and Sunday).
- * Training groups do not count as a second team. */
+ * The players split into U4 to U6, U7 and over in a team, and U7 and over in training groups only, which add up to
+ * the club total. Training groups are not teams: they do not count as a second team or as team places. */
 export function club_totals(result: rc.Result): Array<[string, number]> {
   const teamsOf = new Map<rc.Row, Set<string>>();
   for (const [label, members] of Object.entries(result.teams)) {
@@ -283,13 +284,29 @@ export function club_totals(result: rc.Result): Array<[string, number]> {
   const rows = [...teamsOf.keys()];
   const paying = rows.map(paying_cell);
   const count = (v: string) => paying.filter((p) => p === v).length;
+  // U4 to U6, U7 and over in a team, U7 and over in training groups only: these add up to the club total
+  let young = 0;
+  let inTeam = 0;
+  let trainingOnly = 0;
+  for (const labels of teamsOf.values()) {
+    const list = [...labels];
+    if (list.some((x) => rc.no_fa_age_group(x))) young++;
+    else if (list.some((x) => !isTraining(x))) inTeam++;
+    else trainingOnly++;
+  }
   const out: Array<[string, number]> = [
     ['Players in the club (each counted once)', rows.length],
+    ['Of these, U4 to U6', young],
+    ['Of these, U7 and over in a team', inTeam],
+    ['Of these, U7 and over in training groups only', trainingOnly],
     [
       'Playing in two or more teams (e.g. Saturday and Sunday)',
       [...teamsOf.values()].filter((labels) => [...labels].filter((x) => !isTraining(x)).length > 1).length,
     ],
-    ['Team places (a player in two teams counts twice)', Object.values(result.teams).reduce((n, m) => n + m.length, 0)],
+    [
+      'Team places (a player in two teams counts twice; training groups not counted)',
+      Object.entries(result.teams).filter(([label]) => !isTraining(label)).reduce((n, [, m]) => n + m.length, 0),
+    ],
   ];
   if (result.fa_checked) out.push(['In the FA report', rows.filter((r) => r.fa !== null).length]);
   out.push(
@@ -539,7 +556,8 @@ export async function buildClubPdf(
       (_r, c) => (c === 1 ? STRIPE : null));
   });
   if (result) {
-    w.text(`${teams.length} teams`, 10.5, f.bold, BLACK, 4);
+    w.newPage();
+    w.text(`Squads (${teams.length})`, 18, f.bold, HEAD, 4);
     const summary = teams.map((t) => [
       t.label,
       t.staff.filter(([role]) => teamRole(role) === 'manager').map(([, n]) => n).join(', ') || '-',
@@ -549,7 +567,7 @@ export async function buildClubPdf(
       String(t.paying),
       String(t.not_paying),
     ]);
-    w.table(['Team', 'Manager(s)', 'Players', 'In FA', 'In Thrive', 'Paying', 'Not paying'], summary,
+    w.table(['Squad', 'Manager(s)', 'Players', 'In FA', 'In Thrive', 'Paying', 'Not paying'], summary,
       [0.22, 0.28, 0.1, 0.09, 0.11, 0.1, 0.1],
       (r, c) => (c === 6 ? (teams[r].not_paying ? BAD : GOOD) : r % 2 === 1 ? STRIPE : null));
     w.text(PDF_NOTE, 9, f.regular, GREY);
