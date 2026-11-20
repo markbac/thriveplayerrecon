@@ -4,6 +4,15 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-20
+
+### Added
+- **Coaches reconciliation** (web and desktop apps): a new optional file, the **FA Team Qualifications Report** from the Whole Game System. Reconcile works with players only, coaches only (no Thrive export needed) or both. "Find my latest exports" also finds the report in Downloads
+- **Coaches tab**: every team official with their teams, roles, highest coaching qualification and First Aid, Safeguarding and DBS expiry, in colour-coded bands: expired (red), within 1 month (light red), 1 to 3 months (orange), 3 to 6 months (yellow), 6 months or more (green) and not held (grey). Filter by band or by "Not in the officials file"
+- Coaches compared with the managers / club officials file: officials in the FA report but not the file, officials with a team role in the file but not in the FA report, and team differences. Names are matched tolerantly (Chris and Christopher, Rick and Richard, Dave and David)
+- **WhatsApp reminder** for a coach with something expired, not held or expiring within 6 months: says what is expiring, with placeholder text for what they need to do, and opens WhatsApp at their chat using the phone number in the officials file (or copy the text)
+- Club PDF: a **Coaches' qualifications** section (expired, not held and expiring certificates by band with a colour key, teams the FA marks Incomplete, the comparison with the officials file and every coach's qualifications) and coach counts in the summary. The PDF can now be made from the coaches report alone
+
 ## [1.9.1] - 2026-11-20
 
 ### Changed

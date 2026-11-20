@@ -24,6 +24,8 @@ PDF_NOTE = ("In FA: the player's FA registration status, 'No' when not found in 
             "player has an active Thrive mandate. A player shown as not in Thrive may be there under a different "
             "name: check before chasing.")
 CONFIDENTIAL = "CONFIDENTIAL: names children. Share only with those who need it and delete when finished."
+CONFIDENTIAL_ADULTS = ("CONFIDENTIAL: personal data about club officials. Share only with those who need it and "
+                       "delete when finished.")
 
 
 @dataclass
@@ -45,6 +47,7 @@ class Official:
     second_role: str = ""
     exec_member: bool = False
     teams: List[str] = field(default_factory=list)
+    phone: str = ""
 
     @property
     def roles(self) -> List[str]:
@@ -83,6 +86,7 @@ def parse_officials(sheets) -> List[Official]:
             exec_i = rc._find_col(cols, ["exec member", "exec", "executive", "executive member", "committee",
                                          "exec committee", "committee member"])
             team_i = rc._find_col(cols, rc._TEAM_HEADERS)
+            phone_i = rc._find_col(cols, ["phone", "mobile", "telephone", "tel", "phone number", "mobile number"])
             out = []
             for r in rows[i + 1:]:
                 name, role = rc._cell(r, name_i), rc._cell(r, role_i)
@@ -93,7 +97,8 @@ def parse_officials(sheets) -> List[Official]:
                 if name and not role and teams and not _team_role(second):
                     role = "Manager"  # as the managers file reads a person with a team but no role
                 out.append(Official(name, role, second,
-                                    _yes(rc._cell(r, exec_i)) if exec_i is not None else False, teams))
+                                    _yes(rc._cell(r, exec_i)) if exec_i is not None else False, teams,
+                                    rc._cell(r, phone_i) if phone_i is not None else ""))
             if out:
                 return out
     return []
@@ -112,7 +117,7 @@ def officials_from_staff(result: rc.Result) -> List[Official]:
     seen = {}
     for label in rc.team_labels(result):
         for p in result.staff.get(label, []):
-            o = seen.setdefault((p.name.lower(), p.role.lower()), Official(p.name, p.role))
+            o = seen.setdefault((p.name.lower(), p.role.lower()), Official(p.name, p.role, phone=p.phone))
             o.teams.append(label)
     return list(seen.values())
 
@@ -331,9 +336,11 @@ def _fonts() -> Tuple[str, str, str]:
 GOOD, BAD, WARN, HEAD = "#E2F0D9", "#FFC7CE", "#FFF2CC", "#1F3A93"  # header blue picks up the club badge
 
 
-def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
-                    officials: Optional[List[Official]] = None) -> None:
-    """Write the teams PDF to path."""
+def export_club_pdf(path: str, result: Optional[rc.Result], today: Optional[date] = None,
+                    officials: Optional[List[Official]] = None, coaches=None) -> None:
+    """Write the club PDF to path: the summary, club officials, coaches' qualifications (with the FA Team
+    Qualifications Report) and a page per team (with the player files). result is None for a coaches-only run."""
+    import coaches as co
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
@@ -346,8 +353,8 @@ def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
     today = today or date.today()
     now = datetime.now()
     regular, bold, italic = _fonts()
-    officials = officials or officials_from_staff(result)
-    teams = club_summary(result, today, officials)
+    officials = officials or (officials_from_staff(result) if result is not None else [])
+    teams = club_summary(result, today, officials) if result is not None else []
     margin = 2.54 * cm  # the template's 1 inch margins
     width, height = A4
     logo, badges = _asset("club_logo.png"), _asset("fa_badges.png")
@@ -405,48 +412,70 @@ def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
     def esc(text: str) -> str:
         return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    def grid(rows, col_widths, header_rows=1):
+    def grid(rows, col_widths, header_rows=1, size=None):
         style = [("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#A6A6A6")),
                  ("BACKGROUND", (0, 0), (-1, header_rows - 1), colors.HexColor(HEAD)),
                  ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                  ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]
-        data = [[Paragraph(esc(v), cell_b if i < header_rows else cell) for v in r] for i, r in enumerate(rows)]
+        body_style, head_style = cell, cell_b
+        if size:
+            body_style = ParagraphStyle(f"cell{size}", parent=cell, fontSize=size, leading=size * 1.2)
+            head_style = ParagraphStyle(f"cellb{size}", parent=cell_b, fontSize=size, leading=size * 1.2)
+        data = [[Paragraph(esc(v), head_style if i < header_rows else body_style) for v in r]
+                for i, r in enumerate(rows)]
         return Table(data, colWidths=col_widths, repeatRows=header_rows), style
 
     usable = width - 2 * margin
-    story = [Paragraph(DOC_TITLE, h1),
-             Paragraph(f"Every team with its coaches and players, from the FA and Thrive exports, "
-                       f"{today:%d %B %Y}.", body)]
-    if not result.fa_checked:
-        story.append(Paragraph("No FA report was loaded for this run, so FA registration was not checked.", body))
-    totals = club_totals(result)
-    staff_totals = officials_totals(officials) if officials else []
-    summary_rows = [["Club summary", ""]] + [[name, str(n)] for name, n in totals]
-    if staff_totals:
-        summary_rows += [["Club officials", ""]] + [[name, str(n)] for name, n in staff_totals]
-    table, style = grid(summary_rows, [0.72 * usable, 0.14 * usable])
-    style += [("SPAN", (0, 0), (1, 0)), ("BACKGROUND", (1, 1), (1, -1), colors.HexColor("#F2F2F2"))]
-    if staff_totals:
-        sub = len(totals) + 1
-        style += [("SPAN", (0, sub), (1, sub)), ("BACKGROUND", (0, sub), (1, sub), colors.HexColor(HEAD))]
-        table._cellvalues[sub][0] = Paragraph("Club officials", cell_b)
-    table.setStyle(TableStyle(style))
-    table.hAlign = "LEFT"
-    story += [Spacer(0, 6), table, Spacer(0, 10),
-              Paragraph(f"<b>{len(teams)} teams</b>", body), Spacer(0, 4)]
+    if result is not None:
+        story = [Paragraph(DOC_TITLE, h1),
+                 Paragraph(f"Every team with its coaches and players, from the FA and Thrive exports, "
+                           f"{today:%d %B %Y}.", body)]
+        if not result.fa_checked:
+            story.append(Paragraph("No FA report was loaded for this run, so FA registration was not checked.",
+                                   body))
+    else:
+        story = [Paragraph("Club officials and coaches", h1),
+                 Paragraph(f"From the FA Team Qualifications Report and the club officials file, "
+                           f"{today:%d %B %Y}.", body)]
+    # one summary table with a blue sub-heading per part
+    sections = []
+    if result is not None:
+        sections.append(("Club summary", club_totals(result)))
+    if officials:
+        sections.append(("Club officials", officials_totals(officials)))
+    if coaches is not None:
+        sections.append(("Coaches (FA Team Qualifications Report)", co.coaches_totals(coaches, today)))
+    summary_rows, subs = [], []
+    for title, items in sections:
+        subs.append(len(summary_rows))
+        summary_rows += [[title, ""]] + [[name, str(n)] for name, n in items]
+    if summary_rows:
+        table, style = grid(summary_rows, [0.72 * usable, 0.14 * usable], header_rows=1)
+        style += [("BACKGROUND", (1, 1), (1, -1), colors.HexColor("#F2F2F2"))]
+        for sub in subs:
+            style += [("SPAN", (0, sub), (1, sub)), ("BACKGROUND", (0, sub), (1, sub), colors.HexColor(HEAD))]
+            table._cellvalues[sub][0] = Paragraph(esc(summary_rows[sub][0]), cell_b)
+        table.setStyle(TableStyle(style))
+        table.hAlign = "LEFT"
+        story += [Spacer(0, 6), table, Spacer(0, 10)]
+    if result is not None:
+        story += [Paragraph(f"<b>{len(teams)} teams</b>", body), Spacer(0, 4)]
     rows = [["Team", "Manager(s)", "Players", "In FA", "In Thrive", "Paying", "Not paying"]]
     for t in teams:
         managers = ", ".join(n for role, n in t.staff if _team_role(role) == "manager") or "-"
         rows.append([t.label, managers, len(t.players), t.in_fa if result.fa_checked else "-", t.in_thrive,
                      t.paying, t.not_paying])
-    table, style = grid(rows, [x * usable for x in (0.22, 0.28, 0.1, 0.09, 0.11, 0.1, 0.1)])
-    for i, t in enumerate(teams, 1):
-        style.append(("BACKGROUND", (6, i), (6, i), colors.HexColor(BAD if t.not_paying else GOOD)))
-        if i % 2 == 0:
-            style.append(("BACKGROUND", (0, i), (5, i), colors.HexColor("#F2F2F2")))
-    table.setStyle(TableStyle(style))
-    story += [table, Spacer(0, 8), Paragraph(PDF_NOTE, small), Spacer(0, 4),
-              Paragraph(f'<font color="#C00000"><b>{esc(CONFIDENTIAL)}</b></font>', small)]
+    if result is not None:
+        table, style = grid(rows, [x * usable for x in (0.22, 0.28, 0.1, 0.09, 0.11, 0.1, 0.1)])
+        for i, t in enumerate(teams, 1):
+            style.append(("BACKGROUND", (6, i), (6, i), colors.HexColor(BAD if t.not_paying else GOOD)))
+            if i % 2 == 0:
+                style.append(("BACKGROUND", (0, i), (5, i), colors.HexColor("#F2F2F2")))
+        table.setStyle(TableStyle(style))
+        story += [table, Spacer(0, 8), Paragraph(PDF_NOTE, small), Spacer(0, 4),
+                  Paragraph(f'<font color="#C00000"><b>{esc(CONFIDENTIAL)}</b></font>', small)]
+    else:
+        story += [Paragraph(f'<font color="#C00000"><b>{esc(CONFIDENTIAL_ADULTS)}</b></font>', small)]
 
     if officials:  # club officials page: president, executive committee, managers and assistants
         summary = officials_summary(officials)
@@ -477,6 +506,69 @@ def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
                                 [x * usable for x in (0.4, 0.25, 0.35)])
             table.setStyle(TableStyle(style))
             story += [table]
+
+    if coaches is not None:  # coaches' qualifications: what needs doing, then every coach
+        window_colour = co.WINDOW_COLOURS
+        story += [PageBreak(), Paragraph("Coaches' qualifications", h1),
+                  Paragraph(f"From the FA Team Qualifications Report"
+                            f"{' of ' + esc(coaches.report_date) if coaches.report_date else ''}. Expiry windows "
+                            f"count from {today:%d/%m/%Y}.", body), Spacer(0, 6)]
+        incomplete = [t.team for t in coaches.teams if t.complete.lower() == "incomplete"]
+        if incomplete:
+            story += [Paragraph("<b>Teams without a qualified coach/manager (FA: Incomplete):</b> "
+                                + esc(", ".join(incomplete)), body), Spacer(0, 6)]
+        lists = co.expiry_lists(coaches, today)
+        due = [(w, *item) for w in (co.EXPIRED, co.NOT_HELD, co.M1, co.M3, co.M6) for item in lists[w]]
+        story += [Paragraph("Expired, not held and expiring in the next 6 months", h2)]
+        if due:
+            table, style = grid([["When", "Coach", "Team(s)", "Certificate", "Expiry"]] + [list(d) for d in due],
+                                [x * usable for x in (0.17, 0.22, 0.27, 0.16, 0.18)])
+            for i, d in enumerate(due, 1):
+                style.append(("BACKGROUND", (0, i), (0, i), colors.HexColor(window_colour[d[0]])))
+            table.setStyle(TableStyle(style))
+            story += [table, Spacer(0, 4)]
+        else:
+            story += [Paragraph("Nothing expired, missing or expiring within 6 months.", body)]
+        def legend():
+            """One row of coloured, labelled boxes explaining the colours."""
+            bands = [co.EXPIRED, co.M1, co.M3, co.M6, co.OK, co.NOT_HELD]
+            style_lg = ParagraphStyle("lg", parent=small, fontSize=8, leading=10, alignment=1)
+            t = Table([[Paragraph(esc(b), style_lg) for b in bands]], colWidths=[usable / len(bands)] * len(bands))
+            t.setStyle(TableStyle([("BACKGROUND", (i, 0), (i, 0), colors.HexColor(co.WINDOW_COLOURS[b]))
+                                   for i, b in enumerate(bands)]
+                                  + [("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#A6A6A6")),
+                                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+            return t
+        story += [legend(), Spacer(0, 4),
+                  Paragraph("Not held is not always required: the FA requires First Aid only for some roles.",
+                            small), Spacer(0, 8)]
+        if coaches.officials_checked:
+            not_in_file = [c for c in coaches.coaches if c.note == "Not in the officials file"]
+            differs = [c for c in coaches.coaches if c.note and c.note != "Not in the officials file"]
+            story += [Paragraph("Compared with the club officials file", h2)]
+            items = []
+            if not_in_file:
+                items.append("<b>In the FA report but not the officials file:</b> "
+                             + esc(", ".join(f"{c.name} ({', '.join(c.teams)})" for c in not_in_file)))
+            if coaches.not_in_fa:
+                items.append("<b>In the officials file with a team role but not the FA report:</b> "
+                             + esc(", ".join(f"{n} ({t})" for n, _r, t in coaches.not_in_fa)))
+            for c in differs:
+                items.append(f"<b>{esc(c.name)}:</b> {esc(c.note)}")
+            story += [Paragraph(x, body) for x in items] or [Paragraph("Everyone matches.", body)]
+            story += [Spacer(0, 8)]
+        story += [Paragraph(f"All coaches and team officials ({len(coaches.coaches)})", h2)]
+        rows = [["Name", "Team(s)", "Role(s)", "Coaching qualification", "First Aid", "Safeguarding", "DBS"]]
+        for c in coaches.coaches:
+            rows.append([c.name, ", ".join(c.teams), ", ".join(c.roles), c.coaching or "None recorded"]
+                        + [c.certs[k].text() for k, _n in co.CERTS])
+        table, style = grid(rows, [x * usable for x in (0.17, 0.14, 0.13, 0.17, 0.13, 0.13, 0.13)], size=8.5)
+        for i, c in enumerate(coaches.coaches, 1):
+            for j, (k, _n) in enumerate(co.CERTS, 4):
+                style.append(("BACKGROUND", (j, i), (j, i), colors.HexColor(window_colour[c.certs[k].window(today)])))
+        table.setStyle(TableStyle(style))
+        story += [table, Spacer(0, 4),
+                  legend()]
 
     widths = [x * usable for x in (0.37, 0.11, 0.2, 0.14, 0.18)]
     for t in teams:

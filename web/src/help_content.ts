@@ -107,6 +107,7 @@ export const HELP_SECTIONS: Array<[string, string, string]> = [
 3. On the Results tab, pick a view on the left. Click (or press Enter on) any row to see all its details.
 4. Fix anything that needs attention in Thrive or the FA system.
 5. Use Share (Step 3) to download Excel files. "Export team files for managers" downloads a .zip containing one file per team. "Club PDF: teams and players" downloads one PDF on the club template listing every team, its coaches and each player's FA, Thrive and paying status.
+6. Coaches: choose the FA Team Qualifications Report (Whole Game System, Reports > Team Qualifications Report) in Step 1, with or without the player files, and click Reconcile. The Coaches tab shows every team official's First Aid, Safeguarding and DBS expiry in bands (expired, within 1 month, 1 to 3 months, 3 to 6 months, 6 months or more), compares them with your managers or club officials file, and can send a coach a WhatsApp reminder. The club PDF adds a coaches' qualifications section.
 
 Nothing is uploaded and nothing is changed in Thrive or the FA system. The tool only reads your files locally on your computer.`,
   ],

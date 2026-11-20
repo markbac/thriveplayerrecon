@@ -17,6 +17,8 @@ import {
 import type { LoadedFilesPayload, ReconcileInput } from './reconcile_runner';
 import * as contact from './team_contact';
 import * as staffStore from './staff_store';
+import type * as CoachesModule from './coaches';
+import { FILTERS as COACH_FILTERS, WINDOW_COLOURS } from './coaches';
 
 export interface ChosenFile {
   name: string;
@@ -139,7 +141,11 @@ export class WebApp {
   faFile: ChosenFile | null = null;
   thriveFile: ChosenFile | null = null;
   staffFile: ChosenFile | null = null;
+  qualFile: ChosenFile | null = null;
   staffRemembered = false;
+  coaches: CoachesModule.CoachesResult | null = null;
+  coachFilter = 'All coaches';
+  coachSearch = '';
 
   faPlayers: rc.FAPlayer[] | null = null;
   thrivePlayers: rc.ThrivePlayer[] | null = null;
@@ -149,7 +155,7 @@ export class WebApp {
   runFilesKey: string | null = null;
   busy = false;
 
-  activeTab: 'results' | 'teams' | 'not-paying' | 'consents' | 'mappings' = 'results';
+  activeTab: 'results' | 'teams' | 'not-paying' | 'consents' | 'coaches' | 'mappings' = 'results';
   currentView = 'All players';
   resultsSearch = '';
   resultsSort: { col: keyof rc.Row | null; desc: boolean } = { col: null, desc: false };
@@ -187,6 +193,7 @@ export class WebApp {
       this.faFile ? `${this.faFile.name}:${this.faFile.buffer.byteLength}` : '',
       this.thriveFile ? `${this.thriveFile.name}:${this.thriveFile.buffer.byteLength}` : '',
       this.staffFile ? `${this.staffFile.name}:${this.staffFile.buffer.byteLength}` : '',
+      this.qualFile ? `${this.qualFile.name}:${this.qualFile.buffer.byteLength}` : '',
     ].join('|');
   }
 
@@ -226,7 +233,7 @@ export class WebApp {
         <!-- Step 1 -->
         <div class="step-card">
           <div class="step-card-header">
-            <h2 class="step-card-title">Step 1: choose your two files (or drag and drop)</h2>
+            <h2 class="step-card-title">Step 1: choose your files (or drag and drop)</h2>
             <button type="button" class="btn-link" id="step1-howto-link">How to get these files</button>
           </div>
           <div class="file-rows">
@@ -250,6 +257,13 @@ export class WebApp {
               <input type="file" id="input-staff" accept=".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroenabled.12,text/csv,text/comma-separated-values,text/plain,application/zip,application/octet-stream" hidden />
               <button type="button" id="browse-staff">Browse...</button>
               <button type="button" id="clear-staff" aria-label="Clear managers file" hidden>✕</button>
+            </div>
+            <div class="file-drop-row" id="drop-qual" title="The FA Team Qualifications Report from the Whole Game System (Reports > Team Qualifications Report). It fills the Coaches tab: DBS, First Aid and Safeguarding expiry for every team official. Works with or without the player files.">
+              <label for="input-qual">FA qualifications (optional)</label>
+              <div class="file-status-box" id="status-qual" aria-live="polite">Optional: Team Qualifications Report</div>
+              <input type="file" id="input-qual" accept=".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroenabled.12,text/csv,text/comma-separated-values,text/plain,application/zip,application/octet-stream" hidden />
+              <button type="button" id="browse-qual">Browse...</button>
+              <button type="button" id="clear-qual" aria-label="Clear FA qualifications report" hidden>✕</button>
             </div>
           </div>
           <div class="step1-actions">
@@ -298,6 +312,7 @@ export class WebApp {
           <button type="button" role="tab" class="tab-btn" id="tab-btn-teams" aria-selected="false" aria-controls="panel-teams" data-tab="teams">Team sheets</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-not-paying" aria-selected="false" aria-controls="panel-not-paying" data-tab="not-paying">Not paying</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-consents" aria-selected="false" aria-controls="panel-consents" data-tab="consents">Missing consents</button>
+          <button type="button" role="tab" class="tab-btn" id="tab-btn-coaches" aria-selected="false" aria-controls="panel-coaches" data-tab="coaches">Coaches</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-mappings" aria-selected="false" aria-controls="panel-mappings" data-tab="mappings">Team mappings</button>
         </div>
 
@@ -480,6 +495,37 @@ export class WebApp {
           </div>
         </section>
 
+        <!-- Panel: Coaches (FA Team Qualifications Report) -->
+        <section id="panel-coaches" role="tabpanel" aria-labelledby="tab-btn-coaches" class="tabpanel" hidden>
+          <p class="view-desc">
+            Team officials from the FA Team Qualifications Report, with their First Aid, Safeguarding and DBS expiry, compared with your managers or club officials file. Each certificate is coloured by when it expires: red expired, light red within 1 month, orange 1 to 3 months, yellow 3 to 6 months, green 6 months or more, grey not held.
+          </p>
+          <p class="toolbar-warn warn-block" id="coach-summary"></p>
+          <div class="table-toolbar">
+            <label for="select-coach-filter">Show</label>
+            <select id="select-coach-filter"></select>
+            <div class="search-input-group">
+              <label for="coach-search">Search</label>
+              <input type="search" id="coach-search" placeholder="Name, team or qualification..." />
+              <button type="button" id="coach-search-clear" aria-label="Clear coaches search">✕</button>
+            </div>
+            <span class="toolbar-warn" id="coach-filter-count"></span>
+            <span class="toolbar-hint">Click a row for full details.</span>
+          </div>
+          <div class="table-wrapper">
+            <div class="placeholder-overlay" id="placeholder-coaches">
+              <div>
+                <strong>No coaches yet</strong><br /><br />
+                Choose the FA Team Qualifications Report in Step 1 (with or without the player files), then click Reconcile.
+              </div>
+            </div>
+            <table class="data-table" id="table-coaches" aria-label="Coaches and their qualifications">
+              <thead id="thead-coaches"></thead>
+              <tbody id="tbody-coaches"></tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- Panel 5: Team mappings & settings storage (#22) -->
         <section id="panel-mappings" role="tabpanel" aria-labelledby="tab-btn-mappings" class="tabpanel" hidden>
           <p class="view-desc">
@@ -580,6 +626,31 @@ export class WebApp {
         this.saveRememberedStaff();
       }
       this.onFilesModified();
+    });
+    this.setupFileSlot('qual', (file) => {
+      this.qualFile = file;
+      this.onFilesModified();
+    });
+    const coachFilter = this.root.querySelector('#select-coach-filter') as HTMLSelectElement;
+    for (const name of COACH_FILTERS) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      coachFilter.appendChild(opt);
+    }
+    coachFilter.addEventListener('change', () => {
+      this.coachFilter = coachFilter.value;
+      void this.renderCoachesTab();
+    });
+    const coachSearch = this.root.querySelector('#coach-search') as HTMLInputElement;
+    coachSearch.addEventListener('input', () => {
+      this.coachSearch = coachSearch.value;
+      void this.renderCoachesTab();
+    });
+    this.root.querySelector('#coach-search-clear')?.addEventListener('click', () => {
+      coachSearch.value = '';
+      this.coachSearch = '';
+      void this.renderCoachesTab();
     });
     this.root.querySelector('#chk-remember-staff')?.addEventListener('change', (e) => {
       if ((e.target as HTMLInputElement).checked) {
@@ -832,7 +903,7 @@ export class WebApp {
   }
 
   private setupFileSlot(
-    slot: 'fa' | 'thrive' | 'staff',
+    slot: 'fa' | 'thrive' | 'staff' | 'qual',
     onChange: (file: ChosenFile | null) => void
   ): void {
     const dropRow = this.root.querySelector(`#drop-${slot}`) as HTMLElement;
@@ -897,18 +968,25 @@ export class WebApp {
     }
   }
 
-  public setChosenFilesForTest(fa: ChosenFile | null, thrive: ChosenFile | null, staff: ChosenFile | null = null): void {
+  public setChosenFilesForTest(
+    fa: ChosenFile | null,
+    thrive: ChosenFile | null,
+    staff: ChosenFile | null = null,
+    qual: ChosenFile | null = null
+  ): void {
     this.faFile = fa;
     this.thriveFile = thrive;
     this.staffFile = staff;
+    this.qualFile = qual;
     this.onFilesModified();
   }
 
   private updateFileSlotsUI(): void {
-    const slots: Array<['fa' | 'thrive' | 'staff', ChosenFile | null, string]> = [
+    const slots: Array<['fa' | 'thrive' | 'staff' | 'qual', ChosenFile | null, string]> = [
       ['fa', this.faFile, 'No file chosen (tap or drop .xlsx)'],
       ['thrive', this.thriveFile, 'No file chosen (tap or drop .xlsx)'],
       ['staff', this.staffFile, 'Optional (.xlsx or .csv)'],
+      ['qual', this.qualFile, 'Optional: Team Qualifications Report'],
     ];
     for (const [id, file, emptyText] of slots) {
       const statusBox = this.root.querySelector(`#status-${id}`) as HTMLElement;
@@ -1000,6 +1078,7 @@ export class WebApp {
       'teams',
       'not-paying',
       'consents',
+      'coaches',
       'mappings',
     ];
     for (const p of panels) {
@@ -1011,10 +1090,14 @@ export class WebApp {
   // ------------------------------------------------------------------ Reconcile (#18)
 
   public async runReconcile(): Promise<void> {
+    if (!this.faFile && !this.thriveFile && this.qualFile) {
+      await this.runCoachesOnly();
+      return;
+    }
     if (!this.faFile && !this.thriveFile) {
       this.showMessageModal(
         'Choose your files',
-        'Please choose the Thrive data export first. The FA registration report is optional: without it, FA registration is not checked.'
+        'Please choose the Thrive data export first. The FA registration report is optional: without it, FA registration is not checked.\n\nTo check coaches only, choose just the FA qualifications report.'
       );
       return;
     }
@@ -1054,6 +1137,7 @@ export class WebApp {
       this.busy = false;
       this.closeModal();
       this.applyResult(computed);
+      await this.loadCoaches();
       this.afterRunMessages(loaded, addedCount);
     } catch (exc) {
       this.busy = false;
@@ -1066,6 +1150,200 @@ export class WebApp {
             : String(exc);
       this.showMessageModal('Could not reconcile', msg);
     }
+  }
+
+  /** Read the FA qualifications report (if chosen) and compare it with the managers / officials file. */
+  private async loadCoaches(): Promise<boolean> {
+    this.coaches = null;
+    if (this.qualFile) {
+      try {
+        const [excelIo, coachesMod, clubPdf] = await Promise.all([
+          loadExcelIo(), import('./coaches'), import('./club_pdf'),
+        ]);
+        const report = coachesMod.parse_qualifications(
+          await excelIo.readWorkbookSheets(this.qualFile.buffer, this.qualFile.name)
+        );
+        let officials: import('./club_pdf').Official[] = [];
+        if (this.staffFile) {
+          try {
+            officials = clubPdf.parse_officials(
+              await excelIo.readWorkbookSheets(this.staffFile.buffer, this.staffFile.name)
+            );
+          } catch {
+            officials = [];
+          }
+        }
+        if (!officials.length && this.result) officials = clubPdf.officials_from_staff(this.result);
+        this.coaches = coachesMod.reconcile_coaches(report, officials);
+      } catch (exc) {
+        this.showMessageModal('FA qualifications report not used', exc instanceof Error ? exc.message : String(exc));
+      }
+    }
+    await this.renderCoachesTab();
+    return this.coaches !== null;
+  }
+
+  /** Reconcile with only the FA qualifications report (no player files). */
+  private async runCoachesOnly(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    const ok = await this.loadCoaches();
+    this.busy = false;
+    if (!ok || !this.coaches) return;
+    this.runFilesKey = this.currentFilesSignature();
+    const now = new Date();
+    const stateLbl = this.root.querySelector('#run-state-label') as HTMLElement;
+    stateLbl.textContent = `Last run ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    stateLbl.className = 'run-state-text ok';
+    const pdfBtn = this.root.querySelector('#btn-export-club-pdf') as HTMLButtonElement | null;
+    if (pdfBtn) pdfBtn.disabled = false;
+    this.switchTab('coaches');
+    this.setHint(
+      `Coaches only: read ${this.coaches.coaches.length} team officials from the FA qualifications report. Choose the Thrive export too to check players.`
+    );
+    this.setStatus(`Coaches checked at ${rc.formatDate(rc.todayLocalDate())}   |   ${this.qualFile?.name || ''}`);
+  }
+
+  private async renderCoachesTab(): Promise<void> {
+    const tabBtn = this.root.querySelector('#tab-btn-coaches') as HTMLElement;
+    const summaryEl = this.root.querySelector('#coach-summary') as HTMLElement;
+    const thead = this.root.querySelector('#thead-coaches') as HTMLElement;
+    const tbody = this.root.querySelector('#tbody-coaches') as HTMLElement;
+    const countEl = this.root.querySelector('#coach-filter-count') as HTMLElement;
+    const placeholder = this.root.querySelector('#placeholder-coaches') as HTMLElement;
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    if (!this.coaches) {
+      tabBtn.textContent = 'Coaches';
+      summaryEl.textContent = '';
+      countEl.textContent = '';
+      placeholder.hidden = false;
+      return;
+    }
+    placeholder.hidden = true;
+    const coachesMod = await import('./coaches');
+    const res = this.coaches;
+    const [headers, rows] = coachesMod.coach_rows(res, this.coachFilter);
+    const term = this.coachSearch.trim().toLowerCase();
+    const shown = term ? rows.filter(([vals]) => vals.join(' ').toLowerCase().includes(term)) : rows;
+    const action = res.coaches.filter((c) => coachesMod.coach_matches(c, coachesMod.FILTERS[1], rc.todayLocalDate()));
+    tabBtn.textContent = action.length ? `Coaches (${action.length} to action)` : 'Coaches';
+    const totals = Object.fromEntries(coachesMod.coaches_totals(res));
+    const parts = [
+      `${res.coaches.length} team officials: ${totals['Expired']} expired, ${totals['Not held']} not held, ` +
+        `${totals['Expires within 1 month']} expire within 1 month, ${totals['Expires in 1 to 3 months']} in 1 to 3 ` +
+        `months, ${totals['Expires in 3 to 6 months']} in 3 to 6 months, ` +
+        `${totals['All three in date for 6 months or more']} all in date for 6 months or more`,
+    ];
+    const incomplete = res.teams.filter((t) => t.complete.toLowerCase() === 'incomplete').map((t) => t.team);
+    if (incomplete.length) parts.push(`FA says no qualified coach/manager for: ${incomplete.join(', ')}`);
+    if (res.officials_checked) {
+      if (res.not_in_fa.length) {
+        parts.push('In the officials file but not the FA report: ' +
+          res.not_in_fa.map(([n, , t]) => `${n} (${t})`).join(', '));
+      }
+    } else {
+      parts.push('Choose a managers or club officials file to check it against the FA report');
+    }
+    summaryEl.textContent = parts.join('.  ') + '.';
+    countEl.textContent = shown.length !== res.coaches.length ? `Showing ${shown.length} of ${res.coaches.length}` : '';
+    const trHead = document.createElement('tr');
+    for (const h of [...headers, 'Reminder']) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      trHead.appendChild(th);
+    }
+    thead.appendChild(trHead);
+    const today = rc.todayLocalDate();
+    const byName = new Map(res.coaches.map((c) => [c.name, c]));
+    for (const [vals, band] of shown) {
+      const tr = document.createElement('tr');
+      tr.dataset.band = band;
+      tr.tabIndex = 0;
+      const coach = byName.get(vals[0]);
+      vals.forEach((v, i) => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        // each certificate cell in its own band colour; the next action in the coach's most urgent band
+        const certIndex = i - 4;
+        const cellBand = coach && certIndex >= 0 && certIndex < coachesMod.CERTS.length
+          ? coachesMod.cert_window(coach.certs[coachesMod.CERTS[certIndex][0]], today)
+          : i === 7 ? band : '';
+        if (cellBand && WINDOW_COLOURS[cellBand]) {
+          td.style.backgroundColor = WINDOW_COLOURS[cellBand];
+          td.style.color = '#1a1a1a';
+        }
+        tr.appendChild(td);
+      });
+      const tdRemind = document.createElement('td');
+      if (coach && coachesMod.needs_reminder(coach, today)) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-whatsapp-send';
+        btn.textContent = 'WhatsApp...';
+        btn.title = `A reminder for ${coach.name} saying what is expiring, ready to send on WhatsApp`;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openCoachReminder(coach, coachesMod.reminder_message(coach, today));
+        });
+        tdRemind.appendChild(btn);
+      }
+      tr.appendChild(tdRemind);
+      const open = () => this.openRowDetailModal(headers, vals);
+      tr.addEventListener('click', open);
+      tr.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      });
+      tbody.appendChild(tr);
+    }
+  }
+
+  /** WhatsApp reminder for one coach: editable text, then open WhatsApp at their chat (or copy the text). */
+  private openCoachReminder(coach: CoachesModule.Coach, message: string): void {
+    const body = document.createElement('div');
+    const desc = document.createElement('p');
+    desc.className = 'view-desc wa-desc';
+    desc.textContent =
+      'Replace the [What to do: ...] text with what this coach needs to do, then send. The message goes to WhatsApp in the link, so send it only to this coach.';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'whatsapp-textarea';
+    textarea.setAttribute('aria-label', `WhatsApp reminder for ${coach.name}`);
+    textarea.value = message;
+    body.append(desc, textarea);
+    const footer = document.createElement('div');
+    footer.className = 'wa-send-row';
+    const phone = coach.phone || '';
+    if (contact.whatsappLink(phone, '')) {
+      const a = document.createElement('a');
+      a.className = 'btn-whatsapp-send';
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = `Send to ${coach.name.split(/\s+/)[0]} on WhatsApp...`;
+      a.href = contact.whatsappLink(phone, textarea.value) || '#';
+      a.addEventListener('click', () => {
+        a.href = contact.whatsappLink(phone, textarea.value) || '#';
+        this.setStatus(`Opening WhatsApp at ${coach.name}'s chat. Check the message, then press send.`);
+      });
+      footer.appendChild(a);
+    } else {
+      const note = document.createElement('p');
+      note.className = 'wa-send-note';
+      note.textContent = 'No phone number for this coach in the officials file: copy the text instead.';
+      footer.appendChild(note);
+    }
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', () => void this.copyText(textarea.value, 'Copied. Paste it into WhatsApp.'));
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', () => this.closeModal());
+    footer.append(copyBtn, closeBtn);
+    this.openCustomModal(`WhatsApp reminder: ${coach.name}`, body, footer);
   }
 
   private async executeFileLoading(input: ReconcileInput): Promise<LoadedFilesPayload> {
@@ -1156,7 +1434,7 @@ export class WebApp {
 
     // Hide all "Not reconciled yet" overlays
     this.root.querySelectorAll('.placeholder-overlay').forEach((el) => {
-      (el as HTMLElement).hidden = true;
+      (el as HTMLElement).hidden = el.id === 'placeholder-coaches' ? this.coaches !== null : true;
     });
 
     // Enable export and sharing buttons
@@ -1219,6 +1497,9 @@ export class WebApp {
       'Pick a view on the left of the Results tab. Click any row for the full details.';
     if (addedCount > 0 && !thriveOnly) {
       msg += ` ${addedCount} new Thrive team(s) were matched automatically.`;
+    }
+    if (this.coaches) {
+      msg += ` Coaches tab: ${this.coaches.coaches.length} team officials from the FA qualifications report.`;
     }
     if (unmapped.length > 0 && !thriveOnly) {
       // a Thrive-only run uses Thrive's own team names, so no mapping is needed
@@ -2383,9 +2664,9 @@ export class WebApp {
 
   /** Every team with its coaches and players (in FA, in Thrive, paying) as a PDF on the club template. */
   private exportClubPdf(): void {
-    if (!this.result) return;
+    if (!this.result && !this.coaches) return;
     this.openConfirmModal('Data protection warning', export_warning(false), async () => {
-      if (!this.result) return;
+      if (!this.result && !this.coaches) return;
       const clubPdf = await import('./club_pdf');
       let officials: import('./club_pdf').Official[] = [];
       if (this.staffFile) {
@@ -2397,7 +2678,7 @@ export class WebApp {
           officials = [];
         }
       }
-      const bytes = await clubPdf.buildClubPdf(this.result, new Date(), officials);
+      const bytes = await clubPdf.buildClubPdf(this.result, new Date(), officials, this.coaches);
       const fileName = `Teams_and_players_${todayIsoDate()}.pdf`;
       downloadBlob(bytes, fileName, 'application/pdf');
       this.setStatus(`Downloaded ${fileName}`);
