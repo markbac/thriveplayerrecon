@@ -279,6 +279,7 @@ export class WebApp {
           </div>
           <button type="button" id="btn-export-teams-zip" class="export-action-btn" disabled>Export team files for managers (.zip)...</button>
           <button type="button" id="btn-export-full" class="export-action-btn" disabled>Export full workbook (.xlsx)...</button>
+          <button type="button" id="btn-export-club-pdf" class="export-action-btn" disabled title="A PDF on the club template: every team, its coaches and players, and whether each player is in the FA, in Thrive and paying. Made in this browser, nothing is uploaded.">Club PDF: teams and players...</button>
           <label class="checkbox-row">
             <input type="checkbox" id="chk-medical" />
             <span>Include medical details</span>
@@ -626,6 +627,9 @@ export class WebApp {
     });
     this.root.querySelector('#btn-export-teams-zip')?.addEventListener('click', () => {
       void this.exportEachTeamZip();
+    });
+    this.root.querySelector('#btn-export-club-pdf')?.addEventListener('click', () => {
+      this.exportClubPdf();
     });
 
     // Tab switching
@@ -1819,7 +1823,7 @@ export class WebApp {
   private unmappedTeams(): string[] {
     const known = new Set(Object.keys(this.settings.team_map).map((k) => rc._tkey(k)));
     return Object.keys(this.thriveTeamCounts())
-      .filter((t) => !known.has(rc._tkey(t)))
+      .filter((t) => !known.has(rc._tkey(t)) && !rc.no_fa_age_group(t))
       .sort();
   }
 
@@ -1843,7 +1847,10 @@ export class WebApp {
       const key = known.get(rc._tkey(name));
       let faLabel: string;
       let rowClass = '';
-      if (key === undefined) {
+      if (rc.no_fa_age_group(name)) {
+        faLabel = IGNORE_LABEL; // U4-U6 never have an FA team, whatever the mapping says
+        rowClass = 'level-info';
+      } else if (key === undefined) {
         faLabel = UNMAPPED_LABEL;
         rowClass = 'level-bad';
       } else if (this.settings.team_map[key] === rc.IGNORE) {
@@ -2372,6 +2379,18 @@ export class WebApp {
         );
       }
     );
+  }
+
+  /** Every team with its coaches and players (in FA, in Thrive, paying) as a PDF on the club template. */
+  private exportClubPdf(): void {
+    if (!this.result) return;
+    this.openConfirmModal('Data protection warning', export_warning(false), async () => {
+      if (!this.result) return;
+      const bytes = await (await import('./club_pdf')).buildClubPdf(this.result);
+      const fileName = `Teams_and_players_${todayIsoDate()}.pdf`;
+      downloadBlob(bytes, fileName, 'application/pdf');
+      this.setStatus(`Downloaded ${fileName}`);
+    });
   }
 
   private exportNotPayingList(): void {

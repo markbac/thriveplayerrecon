@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.8.0';
+export const VERSION = '1.9.0';
 // Stamped by Vite at build time (vite.config.ts), in UK time, so it never needs editing by hand.
 declare const __BUILD_DATETIME__: string | undefined;
 export const BUILD_DATETIME: string =
@@ -933,6 +933,15 @@ export function _team_age_limit(team: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+export const NO_FA_AGE_LIMIT = 6; // U4, U5 and U6 groups are never registered with the FA
+
+/** True for a U4, U5 or U6 team ('U05', 'U05 26-27', 'U6 Tigers'): it never has an FA team, whatever the
+ * mapping says. */
+export function no_fa_age_group(team: string): boolean {
+  const limit = _team_age_limit(team);
+  return limit !== null && limit <= NO_FA_AGE_LIMIT;
+}
+
 export function _bad_case(word: string): boolean {
   const letters = Array.from(word).filter((ch) => /\p{L}/u.test(ch));
   return (
@@ -1023,7 +1032,9 @@ export function suggest_mapping(
   const out: Record<string, string | null> = {};
   for (const t of thrive_teams) {
     const form = _team_form(t, '');
-    if (form in by_form) {
+    if (no_fa_age_group(t)) {
+      out[t] = IGNORE;
+    } else if (form in by_form) {
       out[t] = by_form[form];
     } else if (form.includes('training') || /^u\d+$/.test(form)) {
       out[t] = IGNORE;
@@ -1123,6 +1134,12 @@ export function reconcile(
   const lookup = new Map<string, string | null>();
   for (const [k, v] of Object.entries(team_map)) {
     lookup.set(_tkey(k), v);
+  }
+  // U4-U6 groups never have an FA team, even when mapped or missing from the mapping
+  for (const t of thrive) {
+    for (const name of t.teams) {
+      if (no_fa_age_group(name)) lookup.set(_tkey(name), IGNORE);
+    }
   }
   const allFaTeams = new Set<string>();
   for (const p of fa) {

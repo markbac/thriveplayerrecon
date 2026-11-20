@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 from typing import Dict, Optional
 
+import club_pdf
 import reconcile_core as rc
 from version import APP_NAME, APP_TITLE, BUILD_DATETIME, __version__
 
@@ -90,7 +91,9 @@ Until you do, the tables say "Not reconciled yet". If you choose different files
 "Files changed" until you click Reconcile again.
 3.  On the Results tab, pick a view on the left. Double-click any row to see all its details.
 4.  Fix anything that needs attention in Thrive or the FA system.
-5.  Use Share to save Excel files. "Export team files for managers" creates one file per team.
+5.  Use Share to save Excel files. "Export team files for managers" creates one file per team. "Club PDF: teams and \
+players" saves one PDF on the club template listing every team, its coaches and each player's FA, Thrive and paying \
+status.
 
 Nothing is changed in Thrive or the FA system. The tool only reads your two files."""),
     ("exports", "Getting the exports", f"""\
@@ -460,6 +463,7 @@ class App(tk.Tk):
         file_menu.add_separator()
         file_menu.add_command(label="Export full workbook...", command=self.export)
         file_menu.add_command(label="Export team files for managers...", command=self.export_each_team)
+        file_menu.add_command(label="Export club PDF (teams and players)...", command=self.export_club_pdf)
         file_menu.add_command(label="Save a managers file template...", command=self.save_staff_template)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._on_close)
@@ -542,12 +546,16 @@ class App(tk.Tk):
                  "Creates one Excel file per team, in a dated folder, ready to send to each manager.")
         b2 = tip(ttk.Button(share, text="Export full workbook...", command=self.export),
                  "One Excel file with every view, the not-paying list and a sheet for each team.")
+        b3 = tip(ttk.Button(share, text="Club PDF: teams and players...", command=self.export_club_pdf),
+                 "A PDF on the club template: every team, its coaches and players, and whether each player is in "
+                 "the FA, in Thrive and paying. Made on this computer, nothing is uploaded.")
         b1.pack(fill="x")
-        b2.pack(fill="x", pady=(4, 4))
+        b2.pack(fill="x", pady=(4, 0))
+        b3.pack(fill="x", pady=(4, 4))
         tip(ttk.Checkbutton(share, text="Include medical details", variable=self.medical_var,
                             command=self._medical_changed),
             "Untick to leave medical information out of team sheets and exports.").pack(anchor="w")
-        self.export_buttons += [b1, b2]
+        self.export_buttons += [b1, b2, b3]
 
     def _build_results_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
@@ -1661,6 +1669,16 @@ class App(tk.Tk):
                                    "details on the second sheet.\n\nOpen the folder now?"):
                 open_folder(target)
 
+    def export_club_pdf(self) -> None:
+        """Every team with its coaches and players (in FA, in Thrive, paying) as a PDF on the club template."""
+        if not self._need_result() or not self._confirm_export(False):
+            return
+        path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF document", "*.pdf")],
+                                            initialfile=f"Teams_and_players_{date.today():%Y-%m-%d}.pdf")
+        if path and self._write(lambda: club_pdf.export_club_pdf(path, self.result), f"Saved {path}"):
+            if messagebox.askyesno("Saved", f"Saved the club PDF:\n{path}\n\nOpen it now?"):
+                open_folder(path)
+
     def export_not_paying(self) -> None:
         if not self._need_result() or not self._confirm_export(False):
             return
@@ -1690,7 +1708,8 @@ class App(tk.Tk):
 
     def _unmapped_teams(self):
         known = {rc._tkey(k) for k in self.team_map}
-        return sorted(t for t in self._thrive_team_counts() if rc._tkey(t) not in known)
+        return sorted(t for t in self._thrive_team_counts()
+                      if rc._tkey(t) not in known and not rc.no_fa_age_group(t))
 
     def _refresh_mapping_table(self) -> None:
         counts = self._thrive_team_counts()
@@ -1698,7 +1717,9 @@ class App(tk.Tk):
         known = {rc._tkey(k): k for k in self.team_map}
         for name in sorted(set(self.team_map) | set(counts), key=str.lower):
             key = known.get(rc._tkey(name))
-            if key is None:
+            if rc.no_fa_age_group(name):
+                fa, tag = IGNORE_LABEL, "ignored"  # U4-U6 never have an FA team
+            elif key is None:
                 fa, tag = UNMAPPED_LABEL, "unmapped"
             elif self.team_map[key] is rc.IGNORE:
                 fa, tag = IGNORE_LABEL, "ignored"

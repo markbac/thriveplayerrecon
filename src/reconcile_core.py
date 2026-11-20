@@ -534,6 +534,16 @@ def _team_age_limit(team: str) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
+NO_FA_AGE_LIMIT = 6  # U4, U5 and U6 groups are never registered with the FA
+
+
+def no_fa_age_group(team: str) -> bool:
+    """True for a U4, U5 or U6 team ('U05', 'U05 26-27', 'U6 Tigers'): it never has an FA team, whatever the
+    mapping says."""
+    limit = _team_age_limit(team)
+    return limit is not None and limit <= NO_FA_AGE_LIMIT
+
+
 def _bad_case(word: str) -> bool:
     letters = [ch for ch in word if ch.isalpha()]
     return len(letters) > 1 and (word == word.lower() or word == word.upper()) or \
@@ -602,7 +612,9 @@ def suggest_mapping(thrive_teams, fa_teams) -> Dict[str, Optional[str]]:
     out: Dict[str, Optional[str]] = {}
     for t in thrive_teams:
         form = _team_form(t, "")
-        if form in by_form:
+        if no_fa_age_group(t):
+            out[t] = IGNORE
+        elif form in by_form:
             out[t] = by_form[form]
         elif "training" in form or re.fullmatch(r"u\d+", form):
             out[t] = IGNORE
@@ -657,6 +669,10 @@ def reconcile(fa: List[FAPlayer], thrive: List[ThrivePlayer],
     today = today or date.today()
     season_ref = _season_ref(today)
     lookup = {_tkey(k): v for k, v in team_map.items()}
+    for t in thrive:  # U4-U6 groups never have an FA team, even when mapped or missing from the mapping
+        for name in t.teams:
+            if no_fa_age_group(name):
+                lookup[_tkey(name)] = IGNORE
     prefix = club_prefix({t for p in fa for t in p.teams})
     parents = _parent_index(fa)
 
