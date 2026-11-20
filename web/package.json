@@ -1,7 +1,7 @@
 {
   "name": "thriveplayerrecon-web",
   "private": true,
-  "version": "1.8.0",
+  "version": "1.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "exceljs": "4.4.0",
-    "fflate": "0.8.2"
+    "fflate": "0.8.2",
+    "pdf-lib": "1.17.1"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

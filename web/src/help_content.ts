@@ -106,7 +106,7 @@ export const HELP_SECTIONS: Array<[string, string, string]> = [
 2. Click Reconcile. This compares the two lists in your browser in a few seconds; a progress indicator shows each step. Until you do, the tables say "Not reconciled yet". If you choose different files afterwards, Step 2 says "Files changed" until you click Reconcile again.
 3. On the Results tab, pick a view on the left. Click (or press Enter on) any row to see all its details.
 4. Fix anything that needs attention in Thrive or the FA system.
-5. Use Share (Step 3) to download Excel files. "Export team files for managers" downloads a .zip containing one file per team.
+5. Use Share (Step 3) to download Excel files. "Export team files for managers" downloads a .zip containing one file per team. "Club PDF: teams and players" downloads one PDF on the club template listing every team, its coaches and each player's FA, Thrive and paying status.
 
 Nothing is uploaded and nothing is changed in Thrive or the FA system. The tool only reads your files locally on your computer.`,
   ],

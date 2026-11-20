@@ -4,6 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-20
+
+### Added
+- **Club PDF: teams and players** (web and desktop apps, Step 3): one PDF on the WWFC document template (club badge, name and Accredited Club logo in the header; issue, page and date in the footer). It opens with a summary of every team (manager, players, in FA, in Thrive, paying, not paying), then a page per team listing its coaches and each player with their age, FA registration status, whether they are in Thrive and whether they are paying. Names and ages only: no dates of birth, contacts or medical details. Made entirely on the computer or in the browser, nothing is uploaded
+
+### Changed
+- **U4, U5 and U6 teams never map to an FA team**, whatever their Thrive name (for example `U05 26-27` or `U06 26-27`). They are treated as groups with no FA team even if mapped, and are no longer listed as unmapped
+
 ## [1.8.0] - 2026-11-13
 
 ### Added
