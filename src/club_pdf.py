@@ -1,10 +1,12 @@
 """Club teams PDF: every team with its coaches and players, and whether each player is in the FA, in Thrive and
-paying. Laid out on the WWFC document template (club badge, name and Accredited Club logo in the header; issue,
-page and date details in the footer). Everything is generated on this computer: nothing is sent anywhere.
+paying. Laid out on the WWFC document template: the app's club logo, the club name and the Accredited Club /
+Lancashire FA badges in the header; the generated date and time and page number in the footer. Everything is
+generated on this computer: nothing is sent anywhere.
 
 The PDF holds names and ages only (no dates of birth, contacts or medical details) so it is the lightest
 document the tool produces, but it still names children and must be handled as personal data."""
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -35,6 +37,184 @@ class TeamSummary:
     not_paying: int = 0
 
 
+@dataclass
+class Official:
+    """A person (or an unfilled role) from the club officials file or the managers file."""
+    name: str                     # "" for a vacant role
+    role: str = ""
+    second_role: str = ""
+    exec_member: bool = False
+    teams: List[str] = field(default_factory=list)
+
+    @property
+    def roles(self) -> List[str]:
+        return [r for r in (self.role, self.second_role) if r]
+
+
+_AGE_ROLE = re.compile(r"^u0*(\d+)\s+(lead|head coach|manager|coach|assistant|asst)\b", re.I)
+
+
+def _team_role(role: str) -> Optional[str]:
+    """'manager' or 'assistant' for a team role (Manager, Assistant manager, Coach, 'U5 Lead'), else None."""
+    r = role.lower()
+    if any(w in r for w in ("assist", "asst", "deputy")):
+        return "assistant"
+    if "manager" in r or "coach" in r or re.search(r"\blead\b", r):
+        return "manager"
+    return None
+
+
+def _yes(value: str) -> bool:
+    return value.strip().lower() in ("yes", "y", "true", "x", "1", "\u2713", "\u2714")
+
+
+def parse_officials(sheets) -> List[Official]:
+    """People from a club officials file: Name, Role, and optionally Second role, Exec Member and Team(s). The
+    existing one-row-per-person managers file has the same Name / Role / Team(s) columns, so it works too.
+    Rows with a role but no name are kept as vacant roles. Returns [] for a one-row-per-team managers file."""
+    for rows in sheets:
+        for i, row in enumerate(rows[:15]):
+            cols = {rc._hdr(c): j for j, c in enumerate(row) if rc._hdr(c)}
+            name_i = rc._find_col(cols, ["name", "full name", "person", "staff"])
+            role_i = rc._find_col(cols, ["role", "position", "job"])
+            if name_i is None or role_i is None:
+                continue
+            second_i = rc._find_col(cols, ["second role", "other role", "additional role", "role 2", "also"])
+            exec_i = rc._find_col(cols, ["exec member", "exec", "executive", "executive member", "committee",
+                                         "exec committee", "committee member"])
+            team_i = rc._find_col(cols, rc._TEAM_HEADERS)
+            out = []
+            for r in rows[i + 1:]:
+                name, role = rc._cell(r, name_i), rc._cell(r, role_i)
+                second = rc._cell(r, second_i) if second_i is not None else ""
+                teams = rc._split_list(rc._cell(r, team_i)) if team_i is not None else []
+                if not (name or role or second):
+                    continue
+                if name and not role and teams and not _team_role(second):
+                    role = "Manager"  # as the managers file reads a person with a team but no role
+                out.append(Official(name, role, second,
+                                    _yes(rc._cell(r, exec_i)) if exec_i is not None else False, teams))
+            if out:
+                return out
+    return []
+
+
+def load_officials(path: str) -> List[Official]:
+    """parse_officials for a file on disk ([] when the file cannot be read)."""
+    try:
+        return parse_officials(rc._read_sheets(path))
+    except rc.ReportError:
+        return []
+
+
+def officials_from_staff(result: rc.Result) -> List[Official]:
+    """Managers and assistants from the managers file already attached to the result (any layout)."""
+    seen = {}
+    for label in rc.team_labels(result):
+        for p in result.staff.get(label, []):
+            o = seen.setdefault((p.name.lower(), p.role.lower()), Official(p.name, p.role))
+            o.teams.append(label)
+    return list(seen.values())
+
+
+@dataclass
+class OfficialsSummary:
+    president: List[str] = field(default_factory=list)
+    executive: List[Tuple[str, str, str]] = field(default_factory=list)  # (role, name or 'Vacant', also)
+    teams: List[Tuple[str, List[str], List[str]]] = field(default_factory=list)  # (team, managers, assistants)
+    others: List[Tuple[str, str]] = field(default_factory=list)  # (role, name)
+
+
+_EXEC_ORDER = ("chair", "vice", "secretary", "treasurer", "welfare")
+
+
+def _exec_key(role: str):
+    r = role.lower()
+    for i, word in enumerate(_EXEC_ORDER):
+        if word in r and not (word == "chair" and "vice" in r):
+            return (i, r)
+    return (len(_EXEC_ORDER), r)
+
+
+def _is_president(role: str) -> bool:
+    r = role.lower()
+    return "president" in r and "vice" not in r
+
+
+def officials_summary(officials: List[Official]) -> OfficialsSummary:
+    """The president, the executive committee, each team's managers and assistants, and anyone else."""
+    out = OfficialsSummary()
+    teams = {}  # team form -> [display name, managers, assistants]
+
+    def add_team(team: str, kind: str, name: str) -> None:
+        entry = teams.setdefault(rc._team_form(team, ""), [team, [], []])
+        names = entry[1] if kind == "manager" else entry[2]
+        if name not in names:
+            names.append(name)
+
+    for o in officials:
+        club_roles = []
+        for role in o.roles:
+            age = _AGE_ROLE.match(role)
+            if age:
+                if o.name:
+                    add_team(f"U{int(age.group(1))}", _team_role(role) or "manager", o.name)
+            elif _team_role(role):
+                if o.name:
+                    for team in o.teams:
+                        add_team(team, _team_role(role), o.name)
+            else:
+                club_roles.append(role)
+        if o.name and any(_is_president(r) for r in club_roles):
+            out.president.append(o.name)
+            club_roles = [r for r in club_roles if not _is_president(r)]
+        if not club_roles:
+            continue
+        also = ", ".join(r + (f" ({', '.join(o.teams)})" if _team_role(r) and not _AGE_ROLE.match(r) and o.teams
+                              else "") for r in o.roles if r not in club_roles)
+        entry = (" / ".join(club_roles), o.name or "Vacant", also)
+        if o.exec_member:
+            out.executive.append(entry)
+        else:
+            out.others.append(entry)
+    out.executive.sort(key=lambda e: (e[1] == "Vacant", _exec_key(e[0])))
+    out.others.sort(key=lambda e: e[0].lower())
+
+    def team_key(form: str):
+        limit = rc._team_age_limit(teams[form][0])
+        return (limit if limit is not None else 999, form)
+    out.teams = [(teams[f][0], teams[f][1], teams[f][2]) for f in sorted(teams, key=team_key)]
+    return out
+
+
+def officials_totals(officials: List[Official]) -> List[Tuple[str, int]]:
+    """Counts for the summary page: people, executive roles (and how many are vacant), managers, assistants."""
+    summary = officials_summary(officials)
+    people = {o.name.strip().lower() for o in officials if o.name.strip()}
+    managers = {n for _t, m, _a in summary.teams for n in m}
+    assistants = {n for _t, _m, a in summary.teams for n in a}
+    out = [("Club officials (people)", len(people))]
+    if summary.executive:
+        out.append(("Executive committee roles", len(summary.executive)))
+        vacant = sum(1 for _r, n, _a in summary.executive if n == "Vacant")
+        if vacant:
+            out.append(("Executive committee roles vacant", vacant))
+    out += [("Managers and team leads", len(managers)), ("Assistant managers", len(assistants))]
+    return out
+
+
+def _age_group_staff(officials: List[Official], label: str) -> List[Tuple[str, str]]:
+    """Leads and assistants named by age group in the officials file ('U5 Lead') for a U4-U6 team."""
+    limit = rc._team_age_limit(label)
+    out = []
+    for o in officials:
+        for role in o.roles:
+            m = _AGE_ROLE.match(role)
+            if o.name and m and int(m.group(1)) == limit:
+                out.append((role, o.name))
+    return sorted(out, key=lambda e: _team_role(e[0]) != "manager")
+
+
 def fa_cell(source: str, row: rc.Row) -> str:
     if source == rc.NO_FA:
         return "Not needed"
@@ -54,24 +234,37 @@ def paying_cell(row: rc.Row) -> str:
     return "Unknown" if status.startswith("Unknown") else "Not expected"
 
 
+def age_years_months(dob: date, today: date) -> str:
+    """'4y 7m': age in whole years and months, used for the youngest groups (U4-U6)."""
+    months = (today.year - dob.year) * 12 + today.month - dob.month - (today.day < dob.day)
+    return f"{months // 12}y {months % 12}m"
+
+
 def _surname_key(name: str):
     parts = name.split()
     return ((parts[-1] if parts else "").lower(), name.lower())
 
 
-def club_summary(result: rc.Result, today: Optional[date] = None) -> List[TeamSummary]:
-    """One TeamSummary per team, in age-group order, players sorted by surname."""
+def club_summary(result: rc.Result, today: Optional[date] = None,
+                 officials: Optional[List[Official]] = None) -> List[TeamSummary]:
+    """One TeamSummary per team, in age-group order with training groups last, players sorted by surname."""
     today = today or date.today()
     teams = []
-    for label in rc.team_labels(result):
+    labels = rc.team_labels(result)
+    for label in sorted(labels, key=_is_training):  # stable: age order kept
         t = TeamSummary(label)
         people = result.staff.get(label, [])
         for kind, title in (("manager", "Manager"), ("assistant", "Assistant manager"), ("other", "Coach")):
             for p in people:
                 if p.kind == kind and p.name.strip():
                     t.staff.append((p.role.strip() if kind == "other" and p.role.strip() else title, p.name.strip()))
+        if officials and rc.no_fa_age_group(label):  # 'U5 Lead' and similar in the officials file
+            named = {n for _r, n in t.staff}
+            t.staff += [e for e in _age_group_staff(officials, label) if e[1] not in named]
         for source, row in result.teams.get(label, []):
-            name, _dob, age = rc._name_dob(row, today)
+            name, dob, age = rc._name_dob(row, today)
+            if dob and rc.no_fa_age_group(label):
+                age = age_years_months(dob, today)
             fa, paying = fa_cell(source, row), paying_cell(row)
             t.players.append([name, str(age), fa, "Yes" if row.th else "No", paying])
             t.in_fa += row.fa is not None
@@ -81,6 +274,33 @@ def club_summary(result: rc.Result, today: Optional[date] = None) -> List[TeamSu
         t.players.sort(key=lambda v: _surname_key(v[0]))
         teams.append(t)
     return teams
+
+
+def _is_training(label: str) -> bool:
+    return "training" in label.lower()
+
+
+def club_totals(result: rc.Result) -> List[Tuple[str, int]]:
+    """Club-wide counts with each player counted once, even when they play in two teams (Saturday and Sunday).
+    Training groups do not count as a second team."""
+    teams_of = {}  # id(row) -> (row, team labels)
+    for label, members in result.teams.items():
+        for _source, row in members:
+            teams_of.setdefault(id(row), (row, set()))[1].add(label)
+    rows = [row for row, _labels in teams_of.values()]
+    paying = [paying_cell(r) for r in rows]
+    out = [("Players in the club (each counted once)", len(rows)),
+           ("Playing in two or more teams (e.g. Saturday and Sunday)",
+            sum(1 for _r, labels in teams_of.values() if len([x for x in labels if not _is_training(x)]) > 1)),
+           ("Team places (a player in two teams counts twice)", sum(len(m) for m in result.teams.values()))]
+    if result.fa_checked:
+        out.append(("In the FA report", sum(1 for r in rows if r.fa is not None)))
+    out += [("In Thrive", sum(1 for r in rows if r.th is not None)),
+            ("Paying through Thrive", paying.count("Yes")),
+            ("Not paying", paying.count("No"))]
+    if paying.count("Unknown"):
+        out.append(("Paying not known (no mandate column in the Thrive export)", paying.count("Unknown")))
+    return out
 
 
 # --------------------------------------------------------------------------- PDF drawing
@@ -100,6 +320,9 @@ def _fonts() -> Tuple[str, str, str]:
         for name, file in wanted.items():
             if name not in pdfmetrics.getRegisteredFontNames():
                 pdfmetrics.registerFont(TTFont(name, os.path.join(fonts, file)))
+        # so <b> and <i> in paragraphs pick the Calibri bold and italic files
+        pdfmetrics.registerFontFamily("Calibri", normal="Calibri", bold="Calibri-Bold", italic="Calibri-Italic",
+                                      boldItalic="Calibri-Bold")
         return "Calibri", "Calibri-Bold", "Calibri-Italic"
     except Exception:
         return "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
@@ -109,12 +332,13 @@ GOOD, BAD, WARN, HEAD = "#E2F0D9", "#FFC7CE", "#FFF2CC", "#1F3A93"  # header blu
 
 
 def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
-                    issue: str = "1.0") -> None:
+                    officials: Optional[List[Official]] = None) -> None:
     """Write the teams PDF to path."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
+    BADGES_W = 2.05 * cm * 171 / 133  # fa_badges.png is 171 x 133
     from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
                                     TableStyle)
     from reportlab.pdfgen import canvas as pdfcanvas
@@ -122,10 +346,11 @@ def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
     today = today or date.today()
     now = datetime.now()
     regular, bold, italic = _fonts()
-    teams = club_summary(result, today)
+    officials = officials or officials_from_staff(result)
+    teams = club_summary(result, today, officials)
     margin = 2.54 * cm  # the template's 1 inch margins
     width, height = A4
-    badge, accredited = _asset("club_badge.jpg"), _asset("accredited_club.png")
+    logo, badges = _asset("club_logo.png"), _asset("fa_badges.png")
 
     class NumberedCanvas(pdfcanvas.Canvas):
         """Draws the template header and footer once the page count ('Page x of y') is known."""
@@ -147,29 +372,22 @@ def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
 
         def _chrome(self, total: int) -> None:
             top = height - 1.25 * cm  # header distance 708 twips
-            # club badge left (pulled into the margin as in the template), accredited logo right
-            self.drawImage(badge, margin - 0.85 * cm, top - 1.9 * cm, 1.95 * cm, 1.84 * cm,
+            # the app's club logo left (pulled into the margin as in the template), FA badges right
+            self.drawImage(logo, margin - 0.85 * cm, top - 1.95 * cm, 1.95 * cm, 1.95 * cm,
                            preserveAspectRatio=True, mask="auto")
-            self.drawImage(accredited, margin + 13.7 * cm, top - 2.07 * cm, 3.94 * cm, 2.07 * cm,
-                           preserveAspectRatio=True, mask="auto")
+            self.drawImage(badges, width - margin + 1.0 * cm - BADGES_W, top - 2.05 * cm, BADGES_W, 2.05 * cm,
+                           preserveAspectRatio=True, anchor="e", mask="auto")
             x = margin + 1.3 * cm
             self.setFont(regular, 22)
             self.drawString(x, top - 0.75 * cm, CLUB_NAME)
             self.setFont(italic, 11)
             self.drawString(x, top - 1.3 * cm, CLUB_LINES[0])
             self.drawString(x, top - 1.8 * cm, CLUB_LINES[1])
-            # footer: two lines in left / centre / right positions, like the template
-            y1, y2 = 1.25 * cm + 0.5 * cm, 1.25 * cm
-            self.setFont(regular, 11)
-            self.drawString(margin, y1, f"Issue: {issue}")
-            self.drawCentredString(width / 2, y1, f"Page: {self._pageNumber} of {total}")
-            self.drawRightString(width - margin, y1, f"Issue Date: {today:%d/%m/%Y}")
-            self.drawString(margin, y2, f"Doc: {DOC_REF}")
-            self.drawRightString(width - margin, y2, f"Generated: {now:%d/%m/%Y %H:%M}")
-            self.setFont(bold, 8)
-            self.setFillColor(colors.HexColor("#C00000"))
-            self.drawCentredString(width / 2, y2 - 0.5 * cm, CONFIDENTIAL)
-            self.setFillColor(colors.black)
+            # footer: when it was generated, and the page number
+            y = 1.25 * cm
+            self.setFont(regular, 10)
+            self.drawString(margin, y, f"Generated: {now:%d/%m/%Y %H:%M}")
+            self.drawRightString(width - margin, y, f"Page {self._pageNumber} of {total}")
 
     doc = SimpleDocTemplate(path, pagesize=A4, leftMargin=margin, rightMargin=margin,
                             topMargin=margin + 1.3 * cm, bottomMargin=margin,
@@ -201,15 +419,24 @@ def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
                        f"{today:%d %B %Y}.", body)]
     if not result.fa_checked:
         story.append(Paragraph("No FA report was loaded for this run, so FA registration was not checked.", body))
-    total = sum(len(t.players) for t in teams)
-    story += [Spacer(0, 6),
-              Paragraph(f"<b>{len(teams)}</b> teams, <b>{total}</b> player places, "
-                        f"<b>{sum(t.paying for t in teams)}</b> paying through Thrive, "
-                        f"<b>{sum(t.not_paying for t in teams)}</b> not paying.", body),
-              Spacer(0, 8)]
+    totals = club_totals(result)
+    staff_totals = officials_totals(officials) if officials else []
+    summary_rows = [["Club summary", ""]] + [[name, str(n)] for name, n in totals]
+    if staff_totals:
+        summary_rows += [["Club officials", ""]] + [[name, str(n)] for name, n in staff_totals]
+    table, style = grid(summary_rows, [0.72 * usable, 0.14 * usable])
+    style += [("SPAN", (0, 0), (1, 0)), ("BACKGROUND", (1, 1), (1, -1), colors.HexColor("#F2F2F2"))]
+    if staff_totals:
+        sub = len(totals) + 1
+        style += [("SPAN", (0, sub), (1, sub)), ("BACKGROUND", (0, sub), (1, sub), colors.HexColor(HEAD))]
+        table._cellvalues[sub][0] = Paragraph("Club officials", cell_b)
+    table.setStyle(TableStyle(style))
+    table.hAlign = "LEFT"
+    story += [Spacer(0, 6), table, Spacer(0, 10),
+              Paragraph(f"<b>{len(teams)} teams</b>", body), Spacer(0, 4)]
     rows = [["Team", "Manager(s)", "Players", "In FA", "In Thrive", "Paying", "Not paying"]]
     for t in teams:
-        managers = ", ".join(n for role, n in t.staff if role == "Manager") or "-"
+        managers = ", ".join(n for role, n in t.staff if _team_role(role) == "manager") or "-"
         rows.append([t.label, managers, len(t.players), t.in_fa if result.fa_checked else "-", t.in_thrive,
                      t.paying, t.not_paying])
     table, style = grid(rows, [x * usable for x in (0.22, 0.28, 0.1, 0.09, 0.11, 0.1, 0.1)])
@@ -218,18 +445,49 @@ def export_club_pdf(path: str, result: rc.Result, today: Optional[date] = None,
         if i % 2 == 0:
             style.append(("BACKGROUND", (0, i), (5, i), colors.HexColor("#F2F2F2")))
     table.setStyle(TableStyle(style))
-    story += [table, Spacer(0, 8), Paragraph(PDF_NOTE, small)]
-    if result.staff_issues:
-        story += [Spacer(0, 6), Paragraph("<b>Managers file notes:</b> " + esc("; ".join(result.staff_issues)),
-                                          small)]
+    story += [table, Spacer(0, 8), Paragraph(PDF_NOTE, small), Spacer(0, 4),
+              Paragraph(f'<font color="#C00000"><b>{esc(CONFIDENTIAL)}</b></font>', small)]
 
-    widths = [x * usable for x in (0.4, 0.08, 0.2, 0.14, 0.18)]
+    if officials:  # club officials page: president, executive committee, managers and assistants
+        summary = officials_summary(officials)
+        story += [PageBreak(), Paragraph("Club officials", h1)]
+        if summary.president:
+            story += [Paragraph(f"<b>Club President:</b> {esc(', '.join(summary.president))}", body), Spacer(0, 8)]
+        if summary.executive:
+            story += [Paragraph("Executive committee", h2)]
+            table, style = grid([["Role", "Name", "Also"]] + [list(e) for e in summary.executive],
+                                [x * usable for x in (0.4, 0.25, 0.35)])
+            for i, e in enumerate(summary.executive, 1):
+                if e[1] == "Vacant":
+                    style.append(("BACKGROUND", (1, i), (1, i), colors.HexColor(WARN)))
+            table.setStyle(TableStyle(style))
+            story += [table, Spacer(0, 8)]
+        if summary.teams:
+            story += [Paragraph("Managers and assistants", h2)]
+            rows = [["Team", "Manager / lead", "Assistant(s)"]] + [
+                [team, ", ".join(m) or "-", ", ".join(a) or "-"] for team, m, a in summary.teams]
+            table, style = grid(rows, [x * usable for x in (0.26, 0.37, 0.37)])
+            for i in range(2, len(rows), 2):
+                style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#F2F2F2")))
+            table.setStyle(TableStyle(style))
+            story += [table, Spacer(0, 8)]
+        if summary.others:
+            story += [Paragraph("Other club roles", h2)]
+            table, style = grid([["Role", "Name", "Also"]] + [list(e) for e in summary.others],
+                                [x * usable for x in (0.4, 0.25, 0.35)])
+            table.setStyle(TableStyle(style))
+            story += [table]
+
+    widths = [x * usable for x in (0.37, 0.11, 0.2, 0.14, 0.18)]
     for t in teams:
         story.append(PageBreak())
         head = [Paragraph(esc(t.label), h2)]
-        staff = "; ".join(f"{role}: {name}" for role, name in t.staff) or "No coaches listed (add a managers file)"
-        head.append(Paragraph(f"<b>Coaches</b>: {esc(staff)}", body))
-        head.append(Paragraph(f"{len(t.players)} players: {t.in_fa} in FA, {t.in_thrive} in Thrive, "
+        head.append(Paragraph("<b>Coaches:</b>", body))
+        for i, (role, name) in enumerate(t.staff):
+            head.append(Paragraph(esc(f"{role}: {name}") + (";" if i < len(t.staff) - 1 else ""), body))
+        if not t.staff:
+            head.append(Paragraph("No coaches listed (add a managers file)", body))
+        head.append(Paragraph(f"{len(t.players)} player{'' if len(t.players) == 1 else 's'}: {t.in_fa} in FA, {t.in_thrive} in Thrive, "
                               f"{t.paying} paying, {t.not_paying} not paying.", small))
         head.append(Spacer(0, 6))
         table, style = grid([PDF_HEADERS] + t.players, widths)

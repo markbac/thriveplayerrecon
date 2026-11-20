@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.9.0';
+export const VERSION = '1.9.1';
 // Stamped by Vite at build time (vite.config.ts), in UK time, so it never needs editing by hand.
 declare const __BUILD_DATETIME__: string | undefined;
 export const BUILD_DATETIME: string =
@@ -1933,7 +1933,7 @@ export function consents_report(
 
 // --------------------------------------------------------------------------- managers file
 
-const TEAM_HEADERS = [
+export const TEAM_HEADERS = [
   'team',
   'teams',
   'team(s)',
