@@ -1,0 +1,10 @@
+{
+  "format": "PlayerReconcile club data",
+  "version": 1,
+  "kdf": "PBKDF2-SHA256",
+  "iterations": 310000,
+  "cipher": "AES-256-GCM",
+  "salt": "JZmFhjxRfcGIof4sAB8LvQ==",
+  "iv": "+8a0Qc5aovzW4O48",
+  "data": "O+31LEA+LXa9W1ep+5VighipYmHHP3FiPCiiXtB1GMcJHXk4Ii9jzn2is2yW/ObCovHwxh7tabLfUpgJbDqavFRFqqRuYOYbAXzECBmusFOawJnSeFyfHOcV7jeqyQpT0VxDZoM+zNVhDMfdeDa4VogEmYIeJ7rPqt/OCHGDAgFjvu2sgrwzWJ+iADbRwWxYhuu97quApT06OCouZr4aHzt3b3ydrivBBIdI20WPD3IIwLphLdvde4bnyotq25yTO0sPAbms7HFuWlYsIz5hE104fdaFkAkF6+g0BJggSPrT+98Dl3VEF4NS6r/ue5j+uDfdv1j0IH/KxSUAH0WZJ69/ixvHx12AQV4UxQ1+eo4mbXNRogwKBB1Xhhw0qXctyzEo0kvvPebYUn02pHJ9h6JmILW0Gg=="
+}

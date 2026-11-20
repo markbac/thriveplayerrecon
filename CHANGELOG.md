@@ -4,6 +4,20 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-20
+
+### Added
+- **Left the club** (web and desktop): mark a player who has left but is still in the FA report ("Mark as left the club..." on the Not paying tab; desktop also right-click on Results). They are taken out of the results, team sheets, the not paying list, counts, WhatsApp messages and the club PDF, and listed on a new **Left the club** tab with a reminder to release them in the Whole Game System, where they can be put back. Only a one-way code (SHA-256 of the FAN ID) is stored, never names
+- **Coach notes** (web and desktop, Coaches tab): a note per coach, kept against a one-way code of the coach's FAN ID. Notes go in a Notes column of the updated officials file, and a Notes column in the managers / officials file you load fills in coaches who have no note yet (matched by FAN ID or name; a note already in the app is never overwritten)
+- **Export / import club data (encrypted)**: the left the club marks and coach notes in one file encrypted with a passphrase (AES-256-GCM, PBKDF2-SHA256), to move them to another computer. The web app and the Windows app open each other's files; importing merges (all marks, the newer note per coach)
+- Web app: **What's new** in About shows this changelog (built in, so it works offline)
+- **Updated officials file** (web and desktop, Coaches tab; desktop also File menu): a copy of your managers / club officials file with the FA Team Qualifications Report merged in. People are matched by name (Chris and Christopher are the same person); FA teams they are missing are added to Team(s), with their FAN and FA teams and roles; coaches only in the FA report are added (Team Coach or Team Manager as Manager, Assistant Team Coach as Assistant manager); team officials not in the FA report are flagged. Nobody is removed, your names, roles, phones and emails are kept, rows are coloured and a Changes column says what changed. Your own file is not changed
+
+### Changed
+- Updating an already updated officials file reuses its FAN, FA teams and roles, Notes and Changes columns instead of adding them again
+- Coaches keep their FA role per team (for example "U9 White: Assistant Team Coach; U10 Green: Team Coach")
+- Club PDF with the FA qualifications report: team pages, the Squads manager column and the officials page also list the people the FA report has on each team, marked "(FA report only)" when they are not in the officials file; officials the FA report does not have on that team are marked "(not in the FA report)"
+
 ## [1.10.1] - 2026-11-20
 
 ### Changed

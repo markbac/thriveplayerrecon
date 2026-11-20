@@ -19,6 +19,8 @@ import * as contact from './team_contact';
 import * as staffStore from './staff_store';
 import type * as CoachesModule from './coaches';
 import { FILTERS as COACH_FILTERS, WINDOW_COLOURS } from './coaches';
+import * as clubData from './club_data';
+import changelogText from '../../CHANGELOG.md?raw';
 
 export interface ChosenFile {
   name: string;
@@ -70,6 +72,59 @@ function sourceBadge(source: string): string {
     default:
       return source;
   }
+}
+
+/** The CHANGELOG.md (bundled into the app at build time) as simple HTML: releases, sections and bullets. */
+export function renderChangelog(markdown: string): HTMLElement {
+  const root = document.createElement('div');
+  root.className = 'changelog-body';
+  let list: HTMLUListElement | null = null;
+  const inline = (el: HTMLElement, text: string) => {
+    // **bold** and `code`; everything else as plain text (never HTML)
+    for (const part of text.split(/(\*\*[^*]+\*\*|`[^`]+`)/)) {
+      if (!part) continue;
+      if (part.startsWith('**')) {
+        const b = document.createElement('strong');
+        b.textContent = part.slice(2, -2);
+        el.appendChild(b);
+      } else if (part.startsWith('`')) {
+        const c = document.createElement('code');
+        c.textContent = part.slice(1, -1);
+        el.appendChild(c);
+      } else {
+        el.appendChild(document.createTextNode(part.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')));
+      }
+    }
+  };
+  for (const raw of markdown.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    const h2 = /^## \[(.+?)\](.*)$/.exec(line);
+    const h3 = /^### (.+)$/.exec(line);
+    if (h2) {
+      if (h2[1].toLowerCase() === 'unreleased') {
+        list = null;
+        continue;
+      }
+      const h = document.createElement('h3');
+      h.textContent = `${h2[1]}${h2[2].replace(/^\s*-\s*/, ' (').replace(/(\d{4}-\d{2}-\d{2})$/, '$1)')}`;
+      root.appendChild(h);
+      list = null;
+    } else if (h3) {
+      const h = document.createElement('h4');
+      h.textContent = h3[1];
+      root.appendChild(h);
+      list = null;
+    } else if (/^- /.test(line)) {
+      if (!list) {
+        list = document.createElement('ul');
+        root.appendChild(list);
+      }
+      const li = document.createElement('li');
+      inline(li, line.slice(2));
+      list.appendChild(li);
+    }
+  }
+  return root;
 }
 
 function downloadBlob(bytes: Uint8Array | string, fileName: string, mimeType: string): void {
@@ -144,6 +199,8 @@ export class WebApp {
   qualFile: ChosenFile | null = null;
   staffRemembered = false;
   coaches: CoachesModule.CoachesResult | null = null;
+  clubData: clubData.ClubData = { left_players: [], coach_notes: {} };
+  leftRows: rc.Row[] = [];
   coachFilter = 'All coaches';
   coachSearch = '';
 
@@ -155,7 +212,7 @@ export class WebApp {
   runFilesKey: string | null = null;
   busy = false;
 
-  activeTab: 'results' | 'teams' | 'not-paying' | 'consents' | 'coaches' | 'mappings' = 'results';
+  activeTab: 'results' | 'teams' | 'not-paying' | 'consents' | 'coaches' | 'left' | 'mappings' = 'results';
   currentView = 'All players';
   resultsSearch = '';
   resultsSort: { col: keyof rc.Row | null; desc: boolean } = { col: null, desc: false };
@@ -178,6 +235,7 @@ export class WebApp {
     this.root = root;
     this.storage = storage;
     this.settings = settingsMod.loadSettings(this.storage);
+    this.clubData = clubData.loadClubData(this.storage);
     this.renderShell();
     this.restoreRememberedStaff();
     this.bindGlobalShortcuts();
@@ -313,6 +371,7 @@ export class WebApp {
           <button type="button" role="tab" class="tab-btn" id="tab-btn-not-paying" aria-selected="false" aria-controls="panel-not-paying" data-tab="not-paying">Not paying</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-consents" aria-selected="false" aria-controls="panel-consents" data-tab="consents">Missing consents</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-coaches" aria-selected="false" aria-controls="panel-coaches" data-tab="coaches">Coaches</button>
+          <button type="button" role="tab" class="tab-btn" id="tab-btn-left" aria-selected="false" aria-controls="panel-left" data-tab="left">Left the club</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-mappings" aria-selected="false" aria-controls="panel-mappings" data-tab="mappings">Team mappings</button>
         </div>
 
@@ -435,6 +494,7 @@ export class WebApp {
               Players with no active Thrive mandate, plus players registered with the FA but not found in Thrive: the ones who will not be paying through Thrive. FA-only players may be in Thrive under another name, so check before you chase. Click a row for full details.
             </p>
             <div class="panel-top-actions">
+              <button type="button" id="btn-np-left" class="export-action-btn" disabled title="Players who have left the club but are still in the FA report: taken out of this list, the team sheets, counts and the club PDF">Mark as left the club...</button>
               <button type="button" id="btn-np-whatsapp" class="export-action-btn" disabled>Copy for WhatsApp...</button>
               <button type="button" id="btn-np-export" class="export-action-btn" disabled>Export this list...</button>
             </div>
@@ -500,7 +560,10 @@ export class WebApp {
           <p class="view-desc">
             Team officials from the FA Team Qualifications Report, with their First Aid, Safeguarding and DBS expiry, compared with your managers or club officials file. Each certificate is coloured by when it expires: red expired, light red within 1 month, orange 1 to 3 months, yellow 3 to 6 months, green 6 months or more, grey not held.
           </p>
-          <p class="toolbar-warn warn-block" id="coach-summary"></p>
+          <div class="panel-top-row">
+            <p class="toolbar-warn warn-block panel-top-desc" id="coach-summary"></p>
+            <button type="button" id="btn-coach-officials-export" title="Downloads a copy of your managers / club officials file with the FA Team Qualifications Report merged in: FA teams people are missing, coaches only in the FA report, their FAN and FA roles. Nothing is removed.">Download updated officials file...</button>
+          </div>
           <div class="table-toolbar">
             <label for="select-coach-filter">Show</label>
             <select id="select-coach-filter"></select>
@@ -522,6 +585,26 @@ export class WebApp {
             <table class="data-table" id="table-coaches" aria-label="Coaches and their qualifications">
               <thead id="thead-coaches"></thead>
               <tbody id="tbody-coaches"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Panel: Left the club -->
+        <section id="panel-left" role="tabpanel" aria-labelledby="tab-btn-left" class="tabpanel" hidden>
+          <div class="panel-top-row">
+            <p class="view-desc panel-top-desc" id="left-note"></p>
+            <div class="panel-top-actions">
+              <button type="button" id="btn-left-clear">Clear marks no longer needed</button>
+              <button type="button" id="btn-clubdata-export" title="Left the club marks and coach notes, encrypted with a passphrase, to move to another computer (this app or the Windows app)">Export club data (encrypted)...</button>
+              <input type="file" id="input-clubdata-import" accept=".prdata,.json,application/json,text/plain,application/octet-stream" hidden />
+              <button type="button" id="btn-clubdata-import" title="Open an encrypted club data file from another computer">Import club data...</button>
+            </div>
+          </div>
+          <p class="toolbar-warn warn-block" id="left-info"></p>
+          <div class="table-wrapper">
+            <table class="data-table" id="table-left" aria-label="Players marked as left the club">
+              <thead id="thead-left"></thead>
+              <tbody id="tbody-left"></tbody>
             </table>
           </div>
         </section>
@@ -641,6 +724,33 @@ export class WebApp {
     coachFilter.addEventListener('change', () => {
       this.coachFilter = coachFilter.value;
       void this.renderCoachesTab();
+    });
+    this.root.querySelector('#btn-np-left')?.addEventListener('click', () => this.openMarkLeftModal());
+    this.root.querySelector('#btn-left-clear')?.addEventListener('click', () => {
+      const found = new Set(this.leftRows.map(clubData.left_id));
+      const stale = this.clubData.left_players.filter((m) => !found.has(m.id)).length;
+      if (!stale || !this.result) {
+        this.showMessageModal('Nothing to clear', 'Every mark is for a player still in the files.');
+        return;
+      }
+      this.openConfirmModal('Clear marks', `Forget ${stale} mark(s) for players who are not in these files any more?`, () => {
+        this.clubData.left_players = this.clubData.left_players.filter((m) => found.has(m.id));
+        clubData.saveClubData(this.storage, this.clubData);
+        this.renderLeftTab();
+      });
+    });
+    this.root.querySelector('#btn-clubdata-export')?.addEventListener('click', () => this.exportClubData());
+    const clubImport = this.root.querySelector('#input-clubdata-import') as HTMLInputElement;
+    this.root.querySelector('#btn-clubdata-import')?.addEventListener('click', () => {
+      clubImport.value = '';
+      clubImport.click();
+    });
+    clubImport.addEventListener('change', async () => {
+      const f = clubImport.files?.[0];
+      if (f) this.importClubData(await f.text());
+    });
+    this.root.querySelector('#btn-coach-officials-export')?.addEventListener('click', () => {
+      void this.exportUpdatedOfficials();
     });
     const coachSearch = this.root.querySelector('#coach-search') as HTMLInputElement;
     coachSearch.addEventListener('input', () => {
@@ -1079,6 +1189,7 @@ export class WebApp {
       'not-paying',
       'consents',
       'coaches',
+      'left',
       'mappings',
     ];
     for (const p of panels) {
@@ -1175,6 +1286,13 @@ export class WebApp {
         }
         if (!officials.length && this.result) officials = clubPdf.officials_from_staff(this.result);
         this.coaches = coachesMod.reconcile_coaches(report, officials);
+        // notes in the officials file's Notes column fill in coaches who have no note in the app yet
+        const [notes, taken] = clubData.import_file_notes(this.clubData.coach_notes, officials, this.coaches.coaches,
+          coachesMod.same_person);
+        if (taken) {
+          this.clubData.coach_notes = notes;
+          clubData.saveClubData(this.storage, this.clubData);
+        }
       } catch (exc) {
         this.showMessageModal('FA qualifications report not used', exc instanceof Error ? exc.message : String(exc));
       }
@@ -1248,7 +1366,7 @@ export class WebApp {
     summaryEl.textContent = parts.join('.  ') + '.';
     countEl.textContent = shown.length !== res.coaches.length ? `Showing ${shown.length} of ${res.coaches.length}` : '';
     const trHead = document.createElement('tr');
-    for (const h of [...headers, 'Reminder']) {
+    for (const h of [...headers, 'Note', 'Reminder']) {
       const th = document.createElement('th');
       th.textContent = h;
       trHead.appendChild(th);
@@ -1275,6 +1393,21 @@ export class WebApp {
         }
         tr.appendChild(td);
       });
+      const tdNote = document.createElement('td');
+      if (coach) {
+        const note = clubData.note_for(this.clubData.coach_notes, coach);
+        const span = document.createElement('span');
+        span.textContent = note;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = note ? 'Edit...' : 'Add note...';
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openCoachNote(coach);
+        });
+        tdNote.append(span, document.createTextNode(' '), btn);
+      }
+      tr.appendChild(tdNote);
       const tdRemind = document.createElement('td');
       if (coach && coachesMod.needs_reminder(coach, today)) {
         const btn = document.createElement('button');
@@ -1299,6 +1432,246 @@ export class WebApp {
       });
       tbody.appendChild(tr);
     }
+  }
+
+  private saveClubDataAndRecompute(message: string): void {
+    clubData.saveClubData(this.storage, this.clubData);
+    this.recompute();
+    this.renderLeftTab();
+    this.setStatus(message);
+  }
+
+  /** Choose players (on the not paying list) who have left the club but are still in the FA report. */
+  private openMarkLeftModal(): void {
+    if (!this.result) return;
+    const [, npRows] = rc.not_paying_report(this.result);
+    const today = rc.todayLocalDate();
+    const candidates = this.result.rows.filter((r) => npRows.some(([v]) => {
+      const [name, dob] = rc._name_dob(r, today);
+      return v[0] === name && rc.formatDate(v[1] as rc.LocalDate | null) === rc.formatDate(dob);
+    }));
+    const body = document.createElement('div');
+    const desc = document.createElement('p');
+    desc.className = 'view-desc';
+    desc.textContent = 'Tick the players who have left the club. They are taken out of the results, team sheets, the not paying list, counts and the club PDF, and listed on the Left the club tab, where you can undo it. Only a one-way code is stored in this browser, not their name.';
+    body.appendChild(desc);
+    const list = document.createElement('div');
+    list.className = 'left-pick-list';
+    const boxes: Array<[HTMLInputElement, rc.Row]> = [];
+    for (const r of candidates) {
+      const label = document.createElement('label');
+      label.className = 'checkbox-row';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      const span = document.createElement('span');
+      const [name] = rc._name_dob(r, today);
+      span.textContent = `${name} (${r.fa_teams || r.thrive_teams || 'no team'}${r.fa ? ', FAN ' + r.fa.fan_id : ''})`;
+      label.append(box, span);
+      list.appendChild(label);
+      boxes.push([box, r]);
+    }
+    if (!candidates.length) list.textContent = 'Nobody is on the not paying list.';
+    body.appendChild(list);
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer-right';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => this.closeModal());
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'btn-primary';
+    ok.textContent = 'Mark as left';
+    ok.addEventListener('click', () => {
+      const chosen = boxes.filter(([b]) => b.checked).map(([, r]) => r);
+      this.closeModal();
+      if (!chosen.length) return;
+      for (const r of chosen) this.clubData.left_players = clubData.mark(this.clubData.left_players, r);
+      this.saveClubDataAndRecompute(`${chosen.length} player(s) marked as left the club. See the Left the club tab.`);
+    });
+    footer.append(cancel, ok);
+    this.openCustomModal('Mark as left the club', body, footer);
+  }
+
+  private renderLeftTab(): void {
+    const tabBtn = this.root.querySelector('#tab-btn-left') as HTMLElement;
+    (this.root.querySelector('#left-note') as HTMLElement).textContent = clubData.LEFT_NOTE;
+    const info = this.root.querySelector('#left-info') as HTMLElement;
+    const thead = this.root.querySelector('#thead-left') as HTMLElement;
+    const tbody = this.root.querySelector('#tbody-left') as HTMLElement;
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    const [headers, rows] = clubData.left_rows_table(this.leftRows, this.clubData.left_players);
+    tabBtn.textContent = rows.length ? `Left the club (${rows.length})` : 'Left the club';
+    const parts: string[] = [];
+    const stillFa = this.leftRows.filter((r) => r.fa).length;
+    if (stillFa) parts.push(`${stillFa} still in the FA report: release them in the Whole Game System.`);
+    const stale = this.result ? clubData.unmatched_marks(this.clubData.left_players, this.leftRows) : 0;
+    if (stale) parts.push(`${stale} mark(s) are for players not in these files any more; you can clear them.`);
+    if (!this.result) parts.push(`${this.clubData.left_players.length} player(s) marked. Click Reconcile to see them.`);
+    info.textContent = parts.join('  ');
+    const trHead = document.createElement('tr');
+    for (const h of [...headers, '']) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      trHead.appendChild(th);
+    }
+    thead.appendChild(trHead);
+    rows.forEach((vals) => {
+      const row = this.leftRows.find((r) => rc._name_dob(r, rc.todayLocalDate())[0] === vals[0] &&
+        rc.formatDate(rc._name_dob(r, rc.todayLocalDate())[1]) === vals[1]);
+      const tr = document.createElement('tr');
+      for (const v of vals) {
+        const td = document.createElement('td');
+        td.textContent = v;
+        tr.appendChild(td);
+      }
+      const td = document.createElement('td');
+      if (row) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Back in the club';
+        btn.addEventListener('click', () => {
+          this.clubData.left_players = clubData.unmark(this.clubData.left_players, row);
+          this.saveClubDataAndRecompute(`${vals[0]} is back in the club.`);
+        });
+        td.appendChild(btn);
+      }
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
+  }
+
+  /** Ask for a passphrase in a modal (twice when saving). Resolves null when cancelled. */
+  private askPassphrase(title: string, confirm: boolean): Promise<string | null> {
+    return new Promise((resolve) => {
+      const body = document.createElement('div');
+      const p = document.createElement('p');
+      p.className = 'view-desc';
+      p.textContent = 'Passphrase (at least 8 characters). You need it to open the file on the other computer, so keep it safe: it cannot be recovered.';
+      const first = document.createElement('input');
+      first.type = 'password';
+      first.setAttribute('aria-label', 'Passphrase');
+      first.autocomplete = 'new-password';
+      body.append(p, first);
+      const second = document.createElement('input');
+      if (confirm) {
+        second.type = 'password';
+        second.setAttribute('aria-label', 'Type the passphrase again');
+        second.placeholder = 'Type it again';
+        second.autocomplete = 'new-password';
+        body.appendChild(second);
+      }
+      const err = document.createElement('p');
+      err.className = 'toolbar-warn';
+      body.appendChild(err);
+      const footer = document.createElement('div');
+      footer.className = 'modal-footer-right';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', () => {
+        this.closeModal();
+        resolve(null);
+      });
+      const ok = document.createElement('button');
+      ok.type = 'button';
+      ok.className = 'btn-primary';
+      ok.textContent = 'OK';
+      ok.addEventListener('click', () => {
+        if (first.value.length < 8) {
+          err.textContent = 'Use at least 8 characters.';
+          return;
+        }
+        if (confirm && second.value !== first.value) {
+          err.textContent = 'The two passphrases do not match.';
+          return;
+        }
+        this.closeModal();
+        resolve(first.value);
+      });
+      footer.append(cancel, ok);
+      this.openCustomModal(title, body, footer);
+      first.focus();
+    });
+  }
+
+  private async exportClubData(): Promise<void> {
+    if (!this.clubData.left_players.length && !Object.keys(this.clubData.coach_notes).length) {
+      this.showMessageModal('Nothing to export', 'There are no left the club marks or coach notes yet.');
+      return;
+    }
+    const passphrase = await this.askPassphrase('Export club data', true);
+    if (!passphrase) return;
+    const text = await clubData.exportEncrypted(this.clubData, passphrase);
+    const fileName = `Club_data_${todayIsoDate()}.prdata`;
+    downloadBlob(text, fileName, 'application/json');
+    this.setStatus(`Downloaded ${fileName}. Open it on the other computer with Import club data and the passphrase.`);
+  }
+
+  private async importClubData(text: string): Promise<void> {
+    const passphrase = await this.askPassphrase('Import club data', false);
+    if (!passphrase) return;
+    try {
+      const incoming = await clubData.importEncrypted(text, passphrase);
+      this.clubData = clubData.merge(this.clubData, incoming);
+      clubData.saveClubData(this.storage, this.clubData);
+      this.recompute();
+      this.renderLeftTab();
+      await this.renderCoachesTab();
+      this.showMessageModal('Imported', `Imported ${incoming.left_players.length} left the club mark(s) and ${Object.keys(incoming.coach_notes).length} coach note(s), merged with this browser's.`);
+    } catch (exc) {
+      this.showMessageModal('Import club data', exc instanceof Error ? exc.message : String(exc));
+    }
+  }
+
+  /** Add or change the note for a coach (kept in this browser against a one-way code of their FAN ID). */
+  private openCoachNote(coach: CoachesModule.Coach): void {
+    const body = document.createElement('div');
+    const desc = document.createElement('p');
+    desc.className = 'view-desc';
+    desc.textContent = 'A note about this coach, for example a course booked or a DBS in progress. It is kept in this browser and can be moved to another computer with Export club data (encrypted) on the Left the club tab.';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'whatsapp-textarea';
+    textarea.setAttribute('aria-label', `Note for ${coach.name}`);
+    textarea.maxLength = clubData.MAX_NOTE;
+    textarea.value = clubData.note_for(this.clubData.coach_notes, coach);
+    body.append(desc, textarea);
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer-right';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => this.closeModal());
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'btn-primary';
+    save.textContent = 'Save note';
+    save.addEventListener('click', () => {
+      this.clubData.coach_notes = clubData.set_note(this.clubData.coach_notes, coach, textarea.value);
+      clubData.saveClubData(this.storage, this.clubData);
+      this.closeModal();
+      void this.renderCoachesTab();
+      this.setStatus(`Note saved for ${coach.name}.`);
+    });
+    footer.append(cancel, save);
+    this.openCustomModal(`Note: ${coach.name}`, body, footer);
+  }
+
+  /** A copy of the managers / club officials file with the FA Team Qualifications Report merged in. */
+  private async exportUpdatedOfficials(): Promise<void> {
+    if (!this.coaches) {
+      this.showMessageModal('No FA qualifications report', 'Choose the FA qualifications report in Step 1 and click Reconcile first.');
+      return;
+    }
+    const { bytes, changed } = await (await loadExcelIo()).buildUpdatedOfficialsBuffer(this.coaches, this.staffFile,
+      (c) => clubData.note_for(this.clubData.coach_notes, c));
+    const base = this.staffFile ? this.staffFile.name.replace(/\.[^.]+$/, '') : 'Club_officials';
+    const fileName = `${base}_updated_${todayIsoDate()}.xlsx`;
+    downloadBlob(bytes, fileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    this.setStatus(
+      `Downloaded ${fileName}: ${changed} people added or updated (coloured rows; see the Changes column). Check it, then use it as your managers file.`
+    );
   }
 
   /** WhatsApp reminder for one coach: editable text, then open WhatsApp at their chat (or copy the text). */
@@ -1411,6 +1784,8 @@ export class WebApp {
       this.settings.team_map,
       this.settings.fuzzy
     );
+    // players marked as left the club come out of everything, before the managers are attached
+    this.leftRows = clubData.apply_left(res, this.clubData.left_players);
     rc.attach_staff(res, this.staff, this.settings.team_map);
     return res;
   }
@@ -1471,6 +1846,7 @@ export class WebApp {
     }
 
     this.refreshAll();
+    this.renderLeftTab();
   }
 
   private afterRunMessages(loaded: LoadedFilesPayload, addedCount: number): void {
@@ -2956,10 +3332,24 @@ export class WebApp {
   }
 
   private showAbout(): void {
-    this.showMessageModal(
-      `About ${rc.APP_TITLE}`,
-      `${rc.APP_TITLE}\nVersion ${rc.VERSION} (Web App — created ${rc.BUILD_DATETIME})\n\nCompares the FA player registration report with the Thrive export, flags data quality problems and produces team sheets for managers.\n\nWorks entirely in your browser on your computer. Nothing is uploaded or sent anywhere.`
-    );
+    const body = document.createElement('div');
+    const pre = document.createElement('pre');
+    pre.className = 'modal-message-pre';
+    pre.textContent = `${rc.APP_TITLE}\nVersion ${rc.VERSION} (Web App — created ${rc.BUILD_DATETIME})\n\nCompares the FA player registration report with the Thrive export, flags data quality problems and produces team sheets for managers.\n\nWorks entirely in your browser on your computer. Nothing is uploaded or sent anywhere.`;
+    const details = document.createElement('details');
+    details.className = 'changelog';
+    const summary = document.createElement('summary');
+    summary.textContent = "What's new (changelog)";
+    details.append(summary, renderChangelog(changelogText));
+    body.append(pre, details);
+    const footer = document.createElement('div');
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'btn-primary';
+    okBtn.textContent = 'OK';
+    okBtn.addEventListener('click', () => this.closeModal());
+    footer.appendChild(okBtn);
+    this.openCustomModal(`About ${rc.APP_TITLE}`, body, footer);
   }
 
   private showMessageModal(title: string, message: string): void {

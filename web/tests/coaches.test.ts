@@ -189,3 +189,45 @@ describe('Coaches tab', () => {
       .toEqual(['Richard Tester']);
   });
 });
+
+describe('Updated officials file', () => {
+  it('keeps roles per team and merges the FA report into the officials file', () => {
+    const res = report();
+    const jo = res.coaches.find((c) => c.name === 'Jo Sample')!;
+    expect(jo.team_roles).toEqual({ 'U8 Blue': ['Assistant Team Coach'] });
+    expect(co.team_staff(res, 'U9 Black')).toEqual([['Team Manager', 'Pat Unlisted'], ['Team Coach', 'Richard Tester']]);
+    const [headers, rows] = co.updated_officials_table(OFFICIALS, res);
+    expect(headers).toEqual(['Name', 'Role', 'Second role', 'Exec Member', 'Team(s)', 'Phone', 'FAN',
+      'FA teams and roles', 'Notes', 'Changes']);
+    const byName = Object.fromEntries(rows.map(([v, s]) => [v[0], [Object.fromEntries(headers.map((h, i) => [h, v[i]])), s]]));
+    const [rick, rickStatus] = byName['Rick Tester'] as [Record<string, string>, string];
+    expect(rickStatus).toBe(co.UPDATED);
+    expect(rick['Team(s)']).toBe('U8 Red, U9 Black');
+    expect(rick['FA teams and roles']).toBe('U8 Red: Team Coach; U9 Black: Team Coach');
+    expect(rick['Changes']).toBe('Added FA team(s): U9 Black; FA name: Richard Tester');
+    expect(byName['Sam Missing'][1]).toBe(co.NOT_IN_FA);
+    expect(byName['Lee Chair'][1]).toBe('');
+    const [pat, patStatus] = byName['Pat Unlisted'] as [Record<string, string>, string];
+    expect([patStatus, pat['Role'], pat['Team(s)']]).toEqual([co.ADDED, 'Manager', 'U9 Black']);
+    expect(rows.length).toBe(OFFICIALS.length);
+  });
+
+  it('downloads an updated file that is a valid officials file', async () => {
+    const { buildUpdatedOfficialsBuffer, readWorkbookSheets } = await import('../src/excel_io');
+    const { bytes, changed } = await buildUpdatedOfficialsBuffer(report(), { name: 'officials.xlsx', buffer: await xlsx(OFFICIALS) });
+    expect(changed).toBe(2);
+    const sheets = await readWorkbookSheets(bytes, 'updated.xlsx');
+    const officials = parse_officials(sheets);
+    expect(officials.some((o) => o.name === 'Pat Unlisted')).toBe(true);
+    const again = co.reconcile_coaches(report(), officials);
+    expect(again.coaches.filter((c) => c.note === 'Not in the officials file')).toEqual([]);
+  });
+
+  it('adds FA report staff to the officials page', async () => {
+    const { officials_with_fa, officials_summary } = await import('../src/club_pdf');
+    const summary = officials_summary(officials_with_fa(parse_officials([OFFICIALS]), report()));
+    const u9 = summary.teams.find(([t]) => t === 'U9 Black')!;
+    expect(u9[1]).toEqual(['Rick Tester', 'Pat Unlisted (FA report only)']);
+    expect(u9[2]).toEqual(['Sam Missing']);
+  });
+});

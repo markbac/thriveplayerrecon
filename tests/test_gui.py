@@ -15,7 +15,7 @@ def test_not_reconciled_notice_then_results(app_factory, fa_path, thrive_path):
     a = app_factory()
     a.update()
     # one notice per results table, placed over it (only the visible tab's notice is drawn)
-    assert len(a.placeholders) == 5 and all(p.winfo_manager() == "place" for p in a.placeholders)
+    assert len(a.placeholders) == 6 and all(p.winfo_manager() == "place" for p in a.placeholders)
     assert a.run_state_var.get() == "Not run yet"
     reconcile_in_app(a, fa_path, thrive_path)
     # the Coaches tab keeps its notice until the FA qualifications report is chosen

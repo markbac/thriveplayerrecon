@@ -48,6 +48,8 @@ class Official:
     exec_member: bool = False
     teams: List[str] = field(default_factory=list)
     phone: str = ""
+    fan: str = ""    # FAN ID, when the file has one (the updated officials file does)
+    note: str = ""   # Notes column, when the file has one
 
     @property
     def roles(self) -> List[str]:
@@ -87,6 +89,8 @@ def parse_officials(sheets) -> List[Official]:
                                          "exec committee", "committee member"])
             team_i = rc._find_col(cols, rc._TEAM_HEADERS)
             phone_i = rc._find_col(cols, ["phone", "mobile", "telephone", "tel", "phone number", "mobile number"])
+            fan_i = rc._find_col(cols, ["fan", "fan id", "fan number"])
+            note_i = rc._find_col(cols, ["notes", "note", "comments", "comment"])
             out = []
             for r in rows[i + 1:]:
                 name, role = rc._cell(r, name_i), rc._cell(r, role_i)
@@ -98,7 +102,9 @@ def parse_officials(sheets) -> List[Official]:
                     role = "Manager"  # as the managers file reads a person with a team but no role
                 out.append(Official(name, role, second,
                                     _yes(rc._cell(r, exec_i)) if exec_i is not None else False, teams,
-                                    rc._cell(r, phone_i) if phone_i is not None else ""))
+                                    rc._cell(r, phone_i) if phone_i is not None else "",
+                                    rc._cell(r, fan_i) if fan_i is not None else "",
+                                    rc._cell(r, note_i) if note_i is not None else ""))
             if out:
                 return out
     return []
@@ -220,6 +226,40 @@ def _age_group_staff(officials: List[Official], label: str) -> List[Tuple[str, s
     return sorted(out, key=lambda e: _team_role(e[0]) != "manager")
 
 
+def _with_fa_staff(staff: List[Tuple[str, str]], coaches, label: str) -> List[Tuple[str, str]]:
+    """Merge the FA Team Qualifications Report into a team's staff: people only in the FA report are added with
+    their FA role, marked '(FA report only)'; file staff the FA report does not have on this team are marked."""
+    import coaches as co
+    team = label.replace(" (Thrive)", "")
+    if not co.covers_team(coaches, team):
+        return staff
+    fa = co.team_staff(coaches, team)
+    out = []
+    for role, name in staff:
+        on_fa = any(co.same_person(name, n) for _r, n in fa)
+        out.append((role, name if on_fa else f"{name} (not in the FA report)"))
+    for role, name in fa:
+        if not any(co.same_person(name, n) for _r, n in staff) and (role, f"{name} (FA report only)") not in out:
+            out.append((role, f"{name} (FA report only)"))
+    return out
+
+
+def officials_with_fa(officials: List[Official], coaches) -> List[Official]:
+    """The officials plus, for the officials page, the FA Team Qualifications Report's team roles they lack: people
+    only in the FA report (marked) and FA teams missing for people in the file."""
+    import coaches as co
+    extra = []
+    for c in coaches.coaches:
+        match = next((o for o in officials if o.name and co.same_person(c.name, o.name)), None)
+        for team, roles in c.team_roles.items():
+            if match is not None and any(co.same_team(team, t) for t in match.teams):
+                continue  # already on this team in the officials file
+            name = match.name if match is not None else f"{c.name} (FA report only)"
+            for role in roles or ["Team official"]:
+                extra.append(Official(name, co.file_role(role), teams=[team]))
+    return list(officials) + extra
+
+
 def fa_cell(source: str, row: rc.Row) -> str:
     if source == rc.NO_FA:
         return "Not needed"
@@ -251,7 +291,7 @@ def _surname_key(name: str):
 
 
 def club_summary(result: rc.Result, today: Optional[date] = None,
-                 officials: Optional[List[Official]] = None) -> List[TeamSummary]:
+                 officials: Optional[List[Official]] = None, coaches=None) -> List[TeamSummary]:
     """One TeamSummary per team, in age-group order with training groups last, players sorted by surname."""
     today = today or date.today()
     teams = []
@@ -266,6 +306,8 @@ def club_summary(result: rc.Result, today: Optional[date] = None,
         if officials and rc.no_fa_age_group(label):  # 'U5 Lead' and similar in the officials file
             named = {n for _r, n in t.staff}
             t.staff += [e for e in _age_group_staff(officials, label) if e[1] not in named]
+        if coaches is not None:
+            t.staff = _with_fa_staff(t.staff, coaches, label)
         for source, row in result.teams.get(label, []):
             name, dob, age = rc._name_dob(row, today)
             if dob and rc.no_fa_age_group(label):
@@ -367,7 +409,7 @@ def export_club_pdf(path: str, result: Optional[rc.Result], today: Optional[date
     now = datetime.now()
     regular, bold, italic = _fonts()
     officials = officials or (officials_from_staff(result) if result is not None else [])
-    teams = club_summary(result, today, officials) if result is not None else []
+    teams = club_summary(result, today, officials, coaches) if result is not None else []
     margin = 2.54 * cm  # the template's 1 inch margins
     width, height = A4
     logo, badges = _asset("club_logo.png"), _asset("fa_badges.png")
@@ -490,8 +532,8 @@ def export_club_pdf(path: str, result: Optional[rc.Result], today: Optional[date
     else:
         story += [Paragraph(f'<font color="#C00000"><b>{esc(CONFIDENTIAL_ADULTS)}</b></font>', small)]
 
-    if officials:  # club officials page: president, executive committee, managers and assistants
-        summary = officials_summary(officials)
+    if officials or coaches is not None:  # club officials page: president, executive, managers and assistants
+        summary = officials_summary(officials_with_fa(officials, coaches) if coaches is not None else officials)
         story += [PageBreak(), Paragraph("Club officials", h1)]
         if summary.president:
             story += [Paragraph(f"<b>Club President:</b> {esc(', '.join(summary.president))}", body), Spacer(0, 8)]
@@ -512,7 +554,11 @@ def export_club_pdf(path: str, result: Optional[rc.Result], today: Optional[date
             for i in range(2, len(rows), 2):
                 style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#F2F2F2")))
             table.setStyle(TableStyle(style))
-            story += [table, Spacer(0, 8)]
+            story += [table, Spacer(0, 4)]
+            if coaches is not None:
+                story += [Paragraph("(FA report only): in the FA Team Qualifications Report but not the officials "
+                                    "file.", small)]
+            story += [Spacer(0, 8)]
         if summary.others:
             story += [Paragraph("Other club roles", h2)]
             table, style = grid([["Role", "Name", "Also"]] + [list(e) for e in summary.others],

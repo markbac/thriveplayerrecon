@@ -1,6 +1,7 @@
 /**
  * Browser settings persistence in localStorage, plus JSON file export/import.
- * Never stores player data, file contents or personal information.
+ * Never stores player data, file contents or personal information (left the club marks and coach notes are kept
+ * separately by club_data.ts, as one-way codes).
  */
 import * as rc from './reconcile_core';
 

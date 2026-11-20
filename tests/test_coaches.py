@@ -167,3 +167,103 @@ def test_whatsapp_reminder(tmp_path):
     jo = co.reminder_message(by_name["Jo Sample"], TODAY)
     assert "- First Aid: not on your FA record" in jo and "within 1 month" in jo
     assert rc.whatsapp_link(rick.phone, text).startswith("https://wa.me/447700900222?text=Hi%20Richard")
+
+
+def test_roles_are_kept_per_team(tmp_path):
+    res = co.load_qualifications(_report(tmp_path))
+    jo = next(c for c in res.coaches if c.name == "Jo Sample")
+    assert jo.team_roles == {"U8 Blue": ["Assistant Team Coach"]}
+    assert co.fa_roles_text(jo) == "U8 Blue: Assistant Team Coach"
+    assert co.team_staff(res, "U9 Black") == [("Team Manager", "Pat Unlisted"), ("Team Coach", "Richard Tester")]
+    assert co.file_role("Assistant Team Coach") == "Assistant manager" and co.file_role("Team Coach") == "Manager"
+    assert co.file_role("Team Secretary") == "Team Secretary"
+
+
+def test_updated_officials_table(tmp_path):
+    res = co.load_qualifications(_report(tmp_path))
+    headers, rows = co.updated_officials_table([list(r) for r in OFFICIALS], res)
+    assert headers == ["Name", "Role", "Second role", "Exec Member", "Team(s)", "Phone", "FAN", "FA teams and roles",
+                       "Notes", "Changes"]
+    by_name = {v[0]: (dict(zip(headers, v)), s) for v, s in rows}
+    rick, status = by_name["Rick Tester"]
+    assert status == co.UPDATED and rick["Team(s)"] == "U8 Red, U9 Black" and rick["Phone"] == "07700 900222"
+    assert rick["FAN"] == "102" and rick["FA teams and roles"] == "U8 Red: Team Coach; U9 Black: Team Coach"
+    assert rick["Changes"] == "Added FA team(s): U9 Black; FA name: Richard Tester"
+    chris, status = by_name["Chris Example"]
+    assert status == "" and chris["Team(s)"] == "U8 Blue" and chris["Changes"] == "FA name: Christopher Example"
+    assert by_name["Sam Missing"][1] == co.NOT_IN_FA
+    assert by_name["Lee Chair"][1] == ""  # club role only: unchanged, not flagged
+    pat, status = by_name["Pat Unlisted"]
+    assert status == co.ADDED and pat["Role"] == "Manager" and pat["Team(s)"] == "U9 Black"
+    assert [v[0] for v, _s in rows][-1] == "Pat Unlisted"  # added at the end; nobody removed
+    assert len(rows) == len(OFFICIALS) - 1 + 1
+    # no file at all: everyone from the FA report, in the standard layout
+    headers2, rows2 = co.updated_officials_table(None, res)
+    assert headers2[:7] == co.UPDATE_STANDARD_HEADERS and len(rows2) == 4 and {s for _v, s in rows2} == {co.ADDED}
+
+
+def test_updated_officials_file_round_trip(tmp_path):
+    staff = tmp_path / "officials.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.title = "Managers"
+    for r in OFFICIALS:
+        wb.active.append(list(r))
+    wb.create_sheet("Notes").append(["Keep this file secure."])
+    wb.save(staff)
+    res = co.load_qualifications(_report(tmp_path))
+    out = tmp_path / "officials_updated.xlsx"
+    assert co.write_updated_officials(str(out), res, str(staff)) == 2  # Rick updated, Pat added
+    wb2 = openpyxl.load_workbook(out)
+    assert wb2.sheetnames == ["Managers", "Notes", "Changes key"]
+    assert wb2["Notes"]["A1"].value == "Keep this file secure."
+    assert wb2["Managers"].cell(wb2["Managers"].max_row, 1).fill.fgColor.rgb.endswith("E2F0D9")  # added: green
+    # the updated file is a valid managers / officials file, and now matches the FA report
+    officials = club_pdf.load_officials(str(out))
+    assert any(o.name == "Pat Unlisted" for o in officials) and rc.load_staff(str(out))
+    again = co.reconcile_coaches(res, officials)
+    assert not [c for c in again.coaches if c.note == "Not in the officials file"]
+
+
+def test_pdf_staff_enriched_from_the_fa_report(tmp_path):
+    res = co.load_qualifications(_report(tmp_path))
+    staff = [("Manager", "Rick Tester"), ("Assistant manager", "Sam Missing")]
+    merged = club_pdf._with_fa_staff(staff, res, "U9 Black")
+    assert merged == [("Manager", "Rick Tester"), ("Assistant manager", "Sam Missing (not in the FA report)"),
+                      ("Team Manager", "Pat Unlisted (FA report only)")]
+    assert club_pdf._with_fa_staff(staff, res, "U15 Blue") == staff  # a team the FA report does not list
+    officials = club_pdf.parse_officials([OFFICIALS])
+    summary = club_pdf.officials_summary(club_pdf.officials_with_fa(officials, res))
+    teams = {t: (m, a) for t, m, a in summary.teams}
+    assert teams["U9 Black"] == (["Rick Tester", "Pat Unlisted (FA report only)"], ["Sam Missing"])
+
+
+def test_notes_go_out_in_the_updated_file_and_come_back(tmp_path):
+    import club_data
+    res = co.load_qualifications(_report(tmp_path))
+    rick = next(c for c in res.coaches if c.name == "Richard Tester")
+    notes = club_data.set_note({}, rick, "Safeguarding course booked 12/01")
+    headers, rows = co.updated_officials_table([list(r) for r in OFFICIALS], res, notes)
+    by_name = {v[0]: dict(zip(headers, v)) for v, _s in rows}
+    assert by_name["Rick Tester"]["Notes"] == "Safeguarding course booked 12/01"
+    assert by_name["Chris Example"]["Notes"] == ""
+    # updating an updated file again reuses its FAN, Notes and Changes columns
+    again_headers, again_rows = co.updated_officials_table([headers] + [v for v, _s in rows], res, notes)
+    assert again_headers == headers and len(again_rows) == len(rows)
+    # loading that file brings the notes into the app, matched by FAN ID, only where the app has none
+    officials = club_pdf.parse_officials([[headers] + [v for v, _s in rows]])
+    assert next(o for o in officials if o.name == "Rick Tester").fan == "102"
+    fresh, taken = club_data.import_file_notes({}, officials, res.coaches)
+    assert taken == 1 and club_data.note_for(fresh, rick) == "Safeguarding course booked 12/01"
+    newer = club_data.set_note({}, rick, "Course done")
+    kept, taken = club_data.import_file_notes(newer, officials, res.coaches)
+    assert taken == 0 and club_data.note_for(kept, rick) == "Course done"
+
+
+def test_file_notes_matched_by_name_without_fan(tmp_path):
+    import club_data
+    res = co.load_qualifications(_report(tmp_path))
+    rows = [list(OFFICIALS[0]) + ["Notes"]] + [list(r) + [""] for r in OFFICIALS[1:]]
+    rows[1][-1] = "Prefers texts"  # Chris Example, matched to Christopher Example by name
+    _notes, taken = club_data.import_file_notes({}, club_pdf.parse_officials([rows]), res.coaches)
+    chris = next(c for c in res.coaches if c.name == "Christopher Example")
+    assert taken == 1 and club_data.note_for(_notes, chris) == "Prefers texts"
