@@ -43,6 +43,8 @@ export interface Official {
   exec_member: boolean;
   teams: string[];
   phone?: string;
+  fan?: string; // FAN ID, when the file has one (the updated officials file does)
+  note?: string; // Notes column, when the file has one
 }
 
 const rolesOf = (o: Official) => [o.role, o.second_role].filter(Boolean);
@@ -77,6 +79,8 @@ export function parse_officials(sheets: unknown[][][]): Official[] {
         'exec committee', 'committee member']);
       const teamI = rc._find_col(cols, rc.TEAM_HEADERS);
       const phoneI = rc._find_col(cols, ['phone', 'mobile', 'telephone', 'tel', 'phone number', 'mobile number']);
+      const fanI = rc._find_col(cols, ['fan', 'fan id', 'fan number']);
+      const noteI = rc._find_col(cols, ['notes', 'note', 'comments', 'comment']);
       const out: Official[] = [];
       for (const r of rows.slice(i + 1)) {
         const name = rc._cell(r, nameI);
@@ -88,6 +92,8 @@ export function parse_officials(sheets: unknown[][][]): Official[] {
         out.push({
           name, role, second_role: second, exec_member: execI !== null && isYes(rc._cell(r, execI)), teams,
           phone: phoneI !== null ? rc._cell(r, phoneI) : '',
+          fan: fanI !== null ? rc._cell(r, fanI) : '',
+          note: noteI !== null ? rc._cell(r, noteI) : '',
         });
       }
       if (out.length) return out;
@@ -201,6 +207,40 @@ function ageGroupStaff(officials: Official[], label: string): Array<[string, str
   return out.sort((a, b) => Number(teamRole(a[0]) !== 'manager') - Number(teamRole(b[0]) !== 'manager'));
 }
 
+/** Merge the FA Team Qualifications Report into a team's staff: people only in the FA report are added with their
+ * FA role, marked '(FA report only)'; file staff the FA report does not have on this team are marked. */
+function withFaStaff(staff: Array<[string, string]>, coaches: co.CoachesResult, label: string): Array<[string, string]> {
+  const team = label.replace(' (Thrive)', '');
+  if (!co.covers_team(coaches, team)) return staff;
+  const fa = co.team_staff(coaches, team);
+  const out: Array<[string, string]> = staff.map(([role, name]) =>
+    [role, fa.some(([, n]) => co.same_person(name, n)) ? name : `${name} (not in the FA report)`]);
+  for (const [role, name] of fa) {
+    const marked = `${name} (FA report only)`;
+    if (!staff.some(([, n]) => co.same_person(name, n)) && !out.some(([r, n]) => r === role && n === marked)) {
+      out.push([role, marked]);
+    }
+  }
+  return out;
+}
+
+/** The officials plus, for the officials page, the FA Team Qualifications Report's team roles they lack: people
+ * only in the FA report (marked) and FA teams missing for people in the file. */
+export function officials_with_fa(officials: Official[], coaches: co.CoachesResult): Official[] {
+  const extra: Official[] = [];
+  for (const c of coaches.coaches) {
+    const match = officials.find((o) => o.name && co.same_person(c.name, o.name));
+    for (const [team, roles] of Object.entries(c.team_roles)) {
+      if (match && match.teams.some((t) => co.same_team(team, t))) continue;
+      const name = match ? match.name : `${c.name} (FA report only)`;
+      for (const role of roles.length ? roles : ['Team official']) {
+        extra.push({ name, role: co.file_role(role), second_role: '', exec_member: false, teams: [team] });
+      }
+    }
+  }
+  return [...officials, ...extra];
+}
+
 export function fa_cell(source: string, row: rc.Row): string {
   if (source === rc.NO_FA) return 'Not needed';
   if (source === rc.FA_NOT_CHECKED) return 'Not checked';
@@ -227,7 +267,12 @@ function surnameKey(name: string): string {
 }
 
 /** One TeamSummary per team, in age-group order with training groups last, players sorted by surname. */
-export function club_summary(result: rc.Result, today?: rc.LocalDate, officials: Official[] = []): TeamSummary[] {
+export function club_summary(
+  result: rc.Result,
+  today?: rc.LocalDate,
+  officials: Official[] = [],
+  coaches: co.CoachesResult | null = null
+): TeamSummary[] {
   const day = today ?? rc.todayLocalDate();
   const out: TeamSummary[] = [];
   const labels = [...rc.team_labels(result)].sort((a, b) => Number(isTraining(a)) - Number(isTraining(b))); // stable
@@ -251,6 +296,7 @@ export function club_summary(result: rc.Result, today?: rc.LocalDate, officials:
       const named = new Set(t.staff.map(([, n]) => n));
       t.staff.push(...ageGroupStaff(officials, label).filter(([, n]) => !named.has(n)));
     }
+    if (coaches) t.staff = withFaStaff(t.staff, coaches, label);
     for (const [source, row] of result.teams[label] || []) {
       const [name, dob, years] = rc._name_dob(row, day);
       const age = dob && rc.no_fa_age_group(label) ? age_years_months(dob, day) : years;
@@ -517,7 +563,7 @@ export async function buildClubPdf(
 ): Promise<Uint8Array> {
   const officials = officialsIn.length ? officialsIn : result ? officials_from_staff(result) : [];
   const today = rc.makeDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
-  const teams = result ? club_summary(result, today, officials) : [];
+  const teams = result ? club_summary(result, today, officials, coaches) : [];
   const doc = await PDFDocument.create();
   doc.setTitle(`${CLUB_NAME}: ${DOC_TITLE}`);
   doc.setAuthor(CLUB_NAME);
@@ -576,9 +622,9 @@ export async function buildClubPdf(
     w.text(CONFIDENTIAL_ADULTS, 9, f.bold, RED);
   }
 
-  if (officials.length) {
+  if (officials.length || coaches) {
     // club officials page: president, executive committee, managers and assistants
-    const summary = officials_summary(officials);
+    const summary = officials_summary(coaches ? officials_with_fa(officials, coaches) : officials);
     w.newPage();
     w.text('Club officials', 18, f.bold, HEAD, 4);
     if (summary.president.length) w.text(`Club President: ${summary.president.join(', ')}`, 10.5, f.bold, BLACK, 8);
@@ -592,6 +638,7 @@ export async function buildClubPdf(
       w.table(['Team', 'Manager / lead', 'Assistant(s)'],
         summary.teams.map(([team, m, a]) => [team, m.join(', ') || '-', a.join(', ') || '-']), [0.26, 0.37, 0.37],
         (r) => (r % 2 === 1 ? STRIPE : null));
+      if (coaches) w.text('(FA report only): in the FA Team Qualifications Report but not the officials file.', 9, f.regular, GREY);
     }
     if (summary.others.length) {
       w.text('Other club roles', 14, f.bold, HEAD, 2);

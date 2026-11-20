@@ -69,6 +69,7 @@ class Coach:
     name: str
     teams: List[str] = field(default_factory=list)   # short team names, e.g. "U8 Blue"
     roles: List[str] = field(default_factory=list)   # "Team Coach", "Assistant Team Coach", ...
+    team_roles: Dict[str, List[str]] = field(default_factory=dict)  # team -> FA roles on that team
     coaching: str = ""                               # highest coaching qualification
     certs: Dict[str, Cert] = field(default_factory=dict)
     official: str = ""      # matching name in the managers / club officials file
@@ -193,6 +194,8 @@ def parse_qualifications(sheets, today: Optional[date] = None) -> CoachesResult:
                 role = rc._cell(r, role_i)
                 if role and role not in c.roles:
                     c.roles.append(role)
+                if team and role and role not in c.team_roles.setdefault(team, []):
+                    c.team_roles[team].append(role)
                 c.coaching = c.coaching or rc._cell(r, coach_i)
             if coaches:
                 return CoachesResult(sorted(coaches.values(), key=lambda c: _surname(c.name)),
@@ -277,6 +280,208 @@ def reconcile_coaches(result: CoachesResult, officials) -> CoachesResult:
         if roles and o.teams and not any(same_person(c.name, o.name) for c in result.coaches):
             result.not_in_fa.append((o.name, ", ".join(roles), ", ".join(o.teams)))
     return result
+
+
+def fa_roles_text(c: Coach) -> str:
+    """'U9 White: Assistant Team Coach; U12 Black: Team Coach' (each team with its FA role)."""
+    return "; ".join(f"{t}: {', '.join(c.team_roles.get(t, [])) or 'no role'}" for t in c.teams)
+
+
+def file_role(fa_role: str) -> str:
+    """The club file's role for an FA team role: Team Coach and Team Manager are Manager, Assistant Team Coach is
+    Assistant manager (as the club officials file notes say); anything else is kept as the FA writes it."""
+    r = fa_role.lower()
+    if "assist" in r:
+        return "Assistant manager"
+    if r in ("team coach", "team manager", "head coach", "manager", "coach"):
+        return "Manager"
+    return fa_role
+
+
+def _main_role(c: Coach) -> str:
+    roles = [file_role(r) for r in c.roles]
+    for wanted in ("Manager", "Assistant manager"):
+        if wanted in roles:
+            return wanted
+    return roles[0] if roles else "Manager"
+
+
+def team_staff(result: CoachesResult, team: str) -> List[Tuple[str, str]]:
+    """(FA role, name) for everyone the FA report has on a team, managers and coaches first."""
+    out = []
+    for c in result.coaches:
+        for t in c.teams:
+            if same_team(t, team):
+                for role in c.team_roles.get(t, []) or ["Team official"]:
+                    out.append((role, c.name))
+    rank = {"team manager": 0, "team coach": 1, "assistant team coach": 2}
+    return sorted(out, key=lambda e: (rank.get(e[0].lower(), 3), _surname(e[1])))
+
+
+def covers_team(result: CoachesResult, team: str) -> bool:
+    """True when the FA report lists this team (so a missing person there is a real difference)."""
+    return any(same_team(t.team, team) for t in result.teams)
+
+
+# --------------------------------------------------------------------------- updated officials file
+
+UPDATE_STANDARD_HEADERS = ["Name", "Role", "Second role", "Exec Member", "Team(s)", "Phone", "Email"]
+UPDATE_EXTRA_HEADERS = ["FAN", "FA teams and roles", "Notes", "Changes"]
+ADDED, UPDATED, NOT_IN_FA = "added", "updated", "not in FA"
+
+
+def updated_officials_table(rows, result: CoachesResult, notes: Optional[dict] = None):
+    """The officials (or one-row-per-person managers) sheet with the FA report merged in.
+
+    rows: the sheet's rows (the header row is found within the first 15), or None for no file. Returns
+    (headers, [(values, status)]) where status is 'added', 'updated', 'not in FA' or ''. Nobody is removed and
+    names, roles, phones and emails already in the file are kept. Matched people get the FA teams they are
+    missing added to Team(s), plus their FAN and FA teams and roles; people in the FA report but not the file are
+    added at the end with a role from the FA report (Team Coach / Team Manager as Manager, Assistant Team Coach as
+    Assistant manager); team officials in the file but not in the FA report are flagged. With notes (the app's coach
+    notes), each coach's note goes in the Notes column. Columns the file already has (FAN, Notes, ...) are reused,
+    so an updated file can be updated again."""
+    import club_data
+    header_i = None
+    cols: Dict[str, int] = {}
+    if rows:
+        for i, row in enumerate(rows[:15]):
+            cols = {rc._hdr(c): j for j, c in enumerate(row) if rc._hdr(c)}
+            if rc._find_col(cols, ["name", "full name", "person", "staff"]) is not None and \
+                    rc._find_col(cols, ["role", "position", "job"]) is not None:
+                header_i = i
+                break
+    if header_i is None:
+        headers = list(UPDATE_STANDARD_HEADERS)
+        body = []
+        cols = {h.lower(): j for j, h in enumerate(headers)}
+    else:
+        width = max(len(r) for r in rows)
+        headers = [rc._s(c) for c in rows[header_i]] + [""] * (width - len(rows[header_i]))
+        while headers and not headers[-1]:
+            headers.pop()
+        body = [[rc._s(c) if not isinstance(c, (date, datetime)) else c.strftime("%d/%m/%Y") for c in r]
+                + [""] * (len(headers) - len(r)) for r in rows[header_i + 1:]]
+        body = [r[:len(headers)] for r in body if any(str(c).strip() for c in r)]
+    name_i = rc._find_col(cols, ["name", "full name", "person", "staff"])
+    role_i = rc._find_col(cols, ["role", "position", "job"])
+    team_i = rc._find_col(cols, rc._TEAM_HEADERS)
+    second_i = rc._find_col(cols, ["second role", "other role", "additional role", "role 2", "also"])
+    if team_i is None:  # a file without a Team(s) column gets one
+        headers.append("Team(s)")
+        team_i = len(headers) - 1
+        body = [r + [""] for r in body]
+    # FAN, FA teams and roles, Notes and Changes: the file's own column when it has one, else a new one at the end
+    lower = [h.strip().lower() for h in headers]
+    extra = {}
+    for h in UPDATE_EXTRA_HEADERS:
+        names = {"Notes": ("notes", "note", "comments", "comment"), "FAN": ("fan", "fan id", "fan number")}.get(
+            h, (h.lower(),))
+        found = next((j for j, x in enumerate(lower) if x in names), None)
+        if found is None:
+            headers.append(h)
+            found = len(headers) - 1
+        extra[h] = found
+    fan_c, roles_c, note_c, change_c = (extra[h] for h in UPDATE_EXTRA_HEADERS)
+    out = []
+    matched = set()
+    for r in body:
+        r = r + [""] * (len(headers) - len(r))
+        name = r[name_i].strip()
+        roles = [x for x in (r[role_i], r[second_i] if second_i is not None else "") if x]
+        coach = next((c for c in result.coaches if name and id(c) not in matched and same_person(c.name, name)),
+                     None)
+        status, changes = "", []
+        if coach is not None:
+            matched.add(id(coach))
+            current = rc._split_list(r[team_i])
+            missing = [t for t in coach.teams if not any(same_team(t, x) for x in current)]
+            if missing:
+                r[team_i] = ", ".join(current + missing)
+                changes.append("Added FA team(s): " + ", ".join(missing))
+            if coach.name.strip().lower() != name.lower():
+                changes.append(f"FA name: {coach.name}")
+            not_on_fa = [t for t in current if covers_team(result, t) and not any(same_team(t, x) for x in coach.teams)]
+            if not_on_fa:
+                changes.append("Not on " + ", ".join(not_on_fa) + " in the FA report")
+            r[fan_c], r[roles_c] = coach.fan, fa_roles_text(coach)
+            if notes and club_data.note_for(notes, coach):
+                r[note_c] = club_data.note_for(notes, coach)
+            status = UPDATED if missing else ""
+        elif name and any(_team_role(x) for x in roles) and rc._split_list(r[team_i]):
+            status, changes = NOT_IN_FA, ["Not in the FA report as a team official"]
+        r[change_c] = "; ".join(changes)
+        out.append((r, status))
+    for c in result.coaches:
+        if id(c) in matched:
+            continue
+        r = [""] * len(headers)
+        r[name_i] = c.name
+        r[role_i] = _main_role(c)
+        r[team_i] = ", ".join(c.teams)
+        r[fan_c], r[roles_c], r[change_c] = c.fan, fa_roles_text(c), "Added from the FA report"
+        if notes:
+            r[note_c] = club_data.note_for(notes, c)
+        out.append((r, ADDED))
+    return headers, out
+
+
+def write_updated_officials(path: str, result: CoachesResult, staff_path: str = "",
+                            notes: Optional[dict] = None) -> int:
+    """Save the updated officials file as .xlsx (other sheets of the original are kept). Returns how many
+    people were added or updated."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    sheets = rc._read_sheets(staff_path) if staff_path else []
+    names = []
+    if staff_path and not staff_path.lower().endswith(".csv"):
+        import openpyxl
+        wb0 = openpyxl.load_workbook(staff_path, read_only=True)
+        names = list(wb0.sheetnames)
+        wb0.close()
+    target = None
+    for k, rows in enumerate(sheets):
+        if any(rc._find_col({rc._hdr(c): j for j, c in enumerate(row) if rc._hdr(c)}, ["name", "full name"])
+               is not None for row in rows[:15]):
+            target = k
+            break
+    headers, rows = updated_officials_table(sheets[target] if target is not None else None, result, notes)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = (names[target] if target is not None and target < len(names) else "Officials")[:31]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F3A93")
+    fills = {ADDED: "E2F0D9", UPDATED: "FFF2CC", NOT_IN_FA: "FCE4D6"}
+    for values, status in rows:
+        ws.append(values)
+        if status in fills:
+            for cell in ws[ws.max_row]:
+                cell.fill = PatternFill("solid", fgColor=fills[status])
+    for j, h in enumerate(headers, 1):
+        longest = max([len(str(h))] + [len(str(v[j - 1])) for v, _s in rows[:300]])
+        ws.column_dimensions[get_column_letter(j)].width = min(max(10, longest + 2), 60)
+    ws.freeze_panes = "A2"
+    for k, rows0 in enumerate(sheets):  # the original's other sheets, as values
+        if k == target:
+            continue
+        other = wb.create_sheet((names[k] if k < len(names) else f"Sheet{k + 1}")[:31])
+        for r in rows0:
+            other.append([c for c in r])
+    key = wb.create_sheet("Changes key")
+    for line in ("Rows are coloured: green added from the FA Team Qualifications Report, yellow FA team(s) added, "
+                 "orange a team official not found in the FA report.",
+                 "Nobody is removed. Names, roles, phone numbers and emails already in the file are kept.",
+                 "FAN and FA teams and roles come from the FA report. Notes are the coach notes from the app; "
+                 "edit them here or in the app. Check the Changes column before using this file.",
+                 "This file contains personal data about adults. Keep it secure."):
+        key.append([line])
+    key.column_dimensions["A"].width = 110
+    wb.save(path)
+    return sum(1 for _v, s in rows if s in (ADDED, UPDATED))
 
 
 # --------------------------------------------------------------------------- WhatsApp reminder

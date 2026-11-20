@@ -702,6 +702,77 @@ export async function buildConsentsWorkbookBuffer(
   return new Uint8Array(buf);
 }
 
+/** The managers / club officials file with the FA Team Qualifications Report merged in (see
+ * coaches.updated_officials_table); the original's other sheets are kept as values. */
+export async function buildUpdatedOfficialsBuffer(
+  result: import('./coaches').CoachesResult,
+  staff: { name: string; buffer: ArrayBuffer | Uint8Array } | null,
+  noteFor: ((c: import('./coaches').Coach) => string) | null = null
+): Promise<{ bytes: Uint8Array; changed: number }> {
+  const co = await import('./coaches');
+  const sheets = staff ? await readWorkbookSheets(staff.buffer, staff.name) : [];
+  let names: string[] = [];
+  if (staff && !/\.csv$/i.test(staff.name)) {
+    try {
+      const wb0 = new ExcelJS.Workbook();
+      await wb0.xlsx.load((staff.buffer instanceof Uint8Array ? staff.buffer : new Uint8Array(staff.buffer)) as never);
+      names = wb0.worksheets.map((w) => w.name);
+    } catch {
+      names = [];
+    }
+  }
+  const target = sheets.findIndex((rows) => rows.slice(0, 15).some((row) => {
+    const cols: Record<string, number> = {};
+    (row || []).forEach((v, j) => {
+      const h = rc._hdr(v);
+      if (h && !(h in cols)) cols[h] = j;
+    });
+    return rc._find_col(cols, ['name', 'full name']) !== null;
+  }));
+  const [headers, rows] = co.updated_officials_table(target >= 0 ? sheets[target] : null, result, noteFor);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(((target >= 0 && names[target]) || 'Officials').slice(0, 31));
+  ws.addRow(headers);
+  ws.getRow(1).eachCell((c) => {
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3A93' } };
+  });
+  const fills: Record<string, string> = { [co.ADDED]: 'FFE2F0D9', [co.UPDATED]: 'FFFFF2CC', [co.NOT_IN_FA]: 'FFFCE4D6' };
+  for (const [values, status] of rows) {
+    const row = ws.addRow(values);
+    if (fills[status]) {
+      for (let j = 1; j <= headers.length; j++) {
+        row.getCell(j).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fills[status] } };
+      }
+    }
+  }
+  headers.forEach((h, j) => {
+    const longest = Math.max(h.length, ...rows.slice(0, 300).map(([v]) => String(v[j] ?? '').length));
+    ws.getColumn(j + 1).width = Math.min(Math.max(10, longest + 2), 60);
+  });
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  sheets.forEach((rows0, k) => {
+    if (k === target) return;
+    const other = wb.addWorksheet((names[k] || `Sheet${k + 1}`).slice(0, 31));
+    for (const r of rows0) other.addRow((r || []) as ExcelJS.CellValue[]);
+  });
+  const key = wb.addWorksheet('Changes key');
+  for (const line of [
+    'Rows are coloured: green added from the FA Team Qualifications Report, yellow FA team(s) added, orange a team official not found in the FA report.',
+    'Nobody is removed. Names, roles, phone numbers and emails already in the file are kept.',
+    'FAN and FA teams and roles come from the FA report. Notes are the coach notes from the app; edit them here or in the app. Check the Changes column before using this file.',
+    'This file contains personal data about adults. Keep it secure.',
+  ]) {
+    key.addRow([line]);
+  }
+  key.getColumn(1).width = 110;
+  const buf = await wb.xlsx.writeBuffer();
+  return {
+    bytes: new Uint8Array(buf),
+    changed: rows.filter(([, s]) => s === co.ADDED || s === co.UPDATED).length,
+  };
+}
+
 export async function buildStaffTemplateBuffer(): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Managers');

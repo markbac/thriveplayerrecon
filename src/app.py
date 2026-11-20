@@ -14,8 +14,10 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 from typing import Dict, Optional
 
+import club_data
 import club_pdf
 import coaches as co
+import left_club
 import reconcile_core as rc
 from version import APP_NAME, APP_TITLE, BUILD_DATETIME, __version__
 
@@ -95,7 +97,7 @@ Until you do, the tables say "Not reconciled yet". If you choose different files
 5.  Use Share to save Excel files. "Export team files for managers" creates one file per team. "Club PDF: teams and \
 players" saves one PDF on the club template listing every team, its coaches and each player's FA, Thrive and paying \
 status.
-6.  Coaches: choose the FA Team Qualifications Report (Whole Game System, Reports > Team Qualifications Report) in Step 1, with or without the player files, and click Reconcile. The Coaches tab shows every team official's First Aid, Safeguarding and DBS expiry in bands (expired, within 1 month, 1 to 3 months, 3 to 6 months, 6 months or more), compares them with your managers or club officials file, and can send a coach a WhatsApp reminder. The club PDF adds a coaches' qualifications section.
+6.  Coaches: choose the FA Team Qualifications Report (Whole Game System, Reports > Team Qualifications Report) in Step 1, with or without the player files, and click Reconcile. The Coaches tab shows every team official's First Aid, Safeguarding and DBS expiry in bands (expired, within 1 month, 1 to 3 months, 3 to 6 months, 6 months or more), compares them with your managers or club officials file, can send a coach a WhatsApp reminder, and can save an updated officials file with the FA report merged in. The club PDF adds a coaches' qualifications section.
 
 Nothing is changed in Thrive, the FA system or the Whole Game System. The tool only reads your files."""),
     ("exports", "Getting the exports", f"""\
@@ -214,7 +216,9 @@ The files contain children's personal and medical details, which are protected b
 entirely on your computer and sends nothing anywhere. A reminder appears every time you export.
 
 Keep the exports and anything you save secure, only share team files with that team's manager, and delete \
-files when they are no longer needed. This is also an FA requirement for the registration report."""),
+files when they are no longer needed. This is also an FA requirement for the registration report.
+
+The app remembers two things between runs, in its settings file on this computer: players marked as left the club, kept only as one-way codes made from their FAN ID (no names), and your notes on coaches, kept against a one-way code of the coach's FAN ID. Export club data saves them in a file encrypted with a passphrase, so they can be moved to another computer without being readable on the way."""),
     ("trouble", "Troubleshooting", """\
 "Does not look like the FA report / Thrive export": you picked the wrong file. The tool can swap the two boxes \
 for you if they are the wrong way round.
@@ -316,7 +320,7 @@ def config_path() -> str:
 
 
 def load_config() -> dict:
-    cfg = {"fa_path": "", "thrive_path": "", "staff_path": "", "qual_path": "", "fuzzy": rc.DEFAULT_FUZZY, "medical": True,
+    cfg = {"fa_path": "", "thrive_path": "", "staff_path": "", "qual_path": "", "left_players": [], "coach_notes": {}, "fuzzy": rc.DEFAULT_FUZZY, "medical": True,
            "team_map": dict(rc.DEFAULT_TEAM_MAP), "geometry": "", "zoomed": False, "tab": 0, "team": ""}
     try:
         with open(config_path(), encoding="utf-8") as fh:
@@ -438,6 +442,7 @@ class App(tk.Tk):
         self._build_not_paying_tab()
         self._build_consents_tab()
         self._build_coaches_tab()
+        self._build_left_tab()
         self._build_mapping_tab()
         self._refresh_mapping_table()
         self._set_exports_enabled(False)
@@ -475,6 +480,11 @@ class App(tk.Tk):
         file_menu.add_command(label="Export team files for managers...", command=self.export_each_team)
         file_menu.add_command(label="Export club PDF (teams and players)...", command=self.export_club_pdf)
         file_menu.add_command(label="Save a managers file template...", command=self.save_staff_template)
+        file_menu.add_command(label="Save updated officials file (from the FA qualifications report)...",
+                              command=self.export_updated_officials)
+        file_menu.add_separator()
+        file_menu.add_command(label="Export club data (encrypted)...", command=self.export_club_data)
+        file_menu.add_command(label="Import club data...", command=self.import_club_data)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._on_close)
         bar.add_cascade(label="File", menu=file_menu)
@@ -630,6 +640,15 @@ class App(tk.Tk):
         for level, colour in ROW_COLOURS.items():
             self.tree.tag_configure(level, background=colour)
         self.tree.bind("<Double-1>", lambda _e: self._row_detail(self.tree))
+        self.results_menu = tk.Menu(self, tearoff=0)
+        self.results_menu.add_command(label="Mark as left the club...", command=lambda: self.mark_left(self.tree))
+
+        def popup(event) -> None:
+            item = self.tree.identify_row(event.y)
+            if item and self.result:
+                self.tree.selection_set(item)
+                self.results_menu.tk_popup(event.x_root, event.y_root)
+        self.tree.bind("<Button-3>", popup)
 
     @staticmethod
     def _attach_scrollbars(frame, tree) -> None:
@@ -874,12 +893,19 @@ class App(tk.Tk):
                                    "Select a coach with something expired or expiring, then click: a message saying "
                                    "what is expiring, with what to do for you to fill in, ready to send on WhatsApp.")
         self.coach_wa_button.pack(side="right", anchor="n", padx=(8, 0))
-        autowrap(ttk.Label(top, style="Hint.TLabel", justify="left", text=(
+        tip(ttk.Button(top, text="Note...", command=self.edit_coach_note),
+            "Add or change a note about the selected coach (for example a course booked). Notes are kept on this "
+            "computer against a one-way code of the coach's FAN ID.").pack(side="right", anchor="n", padx=(8, 0))
+        tip(ttk.Button(top, text="Save updated officials file...", command=self.export_updated_officials),
+            "Saves a copy of your managers / club officials file with the FA Team Qualifications Report merged in: "
+            "FA teams people are missing, coaches only in the FA report, their FAN and FA roles. Nothing is "
+            "removed, and your own file is not changed.").pack(side="right", anchor="n", padx=(8, 0))
+        autowrap(ttk.Label(tab, style="Hint.TLabel", justify="left", text=(
             "Team officials from the FA Team Qualifications Report, with their First Aid, Safeguarding and DBS "
             "expiry, compared with your managers or club officials file. Each row is coloured by its most urgent "
             "certificate: red expired, light red within 1 month, orange 1 to 3 months, yellow 3 to 6 months, "
             "green 6 months or more, grey not held."))
-                 ).pack(side="left", fill="x", expand=True)
+                 ).pack(fill="x", pady=(0, 4))
         self.coach_summary_var = tk.StringVar()
         autowrap(ttk.Label(tab, textvariable=self.coach_summary_var, style="Warn.TLabel")).pack(fill="x", pady=(0, 4))
         self.coach_search_var, self.coach_count_var = tk.StringVar(), tk.StringVar()
@@ -911,6 +937,12 @@ class App(tk.Tk):
                 officials = club_pdf.officials_from_staff(self.result)
             self.coaches = co.reconcile_coaches(result, officials)
             self.cfg["qual_path"] = qual
+            # notes in the officials file's Notes column fill in coaches who have no note in the app yet
+            notes, taken = club_data.import_file_notes(club_data.clean_notes(self.cfg.get("coach_notes")),
+                                                      officials, self.coaches.coaches)
+            if taken:
+                self.cfg["coach_notes"] = notes
+                save_config(self.cfg)
         self._fill_coaches_tab()
         return self.coaches is not None
 
@@ -921,7 +953,11 @@ class App(tk.Tk):
             return
         self.coach_placeholder.place_forget()
         headers, rows = co.coach_rows(self.coaches, self.coach_filter_var.get())
-        self._set_table(self.coach_tree, headers, [(v, (_band_tag(band),), None, "") for v, band in rows], cap=360)
+        notes = club_data.clean_notes(self.cfg.get("coach_notes"))
+        by_name = {c.name: c for c in self.coaches.coaches}
+        rows = [(v + [club_data.note_for(notes, by_name[v[0]]) if v[0] in by_name else ""], band) for v, band in rows]
+        self._set_table(self.coach_tree, headers + ["Note"], [(v, (_band_tag(band),), None, "") for v, band in rows],
+                        cap=360)
         totals = dict(co.coaches_totals(self.coaches))
         parts = [f"{len(self.coaches.coaches)} team officials: {totals['Expired']} expired",
                  f"{totals['Not held']} not held",
@@ -939,6 +975,128 @@ class App(tk.Tk):
         else:
             parts.append("Choose a managers or club officials file to check it against the FA report")
         self.coach_summary_var.set(", ".join(parts[:6]) + ".  " + ".  ".join(parts[6:]) + ("." if parts[6:] else ""))
+
+    def _selected_coach(self):
+        sel = self.coach_tree.selection()
+        if self.coaches is None or not sel:
+            return None
+        name = self.coach_tree.item(sel[0], "values")[0]
+        return next((c for c in self.coaches.coaches if c.name == name), None)
+
+    def edit_coach_note(self) -> None:
+        coach = self._selected_coach()
+        if coach is None:
+            messagebox.showinfo("Choose a coach", "Click a coach in the list first, then Note.")
+            return
+        notes = club_data.clean_notes(self.cfg.get("coach_notes"))
+        win = tk.Toplevel(self)
+        win.title(f"Note: {coach.name}")
+        win.geometry("520x320")
+        autowrap(ttk.Label(win, style="Hint.TLabel", wraplength=480, justify="left", text=(
+            "A note about this coach, for example a course booked or a DBS in progress. It is kept on this computer "
+            "and can be moved to another with File > Export club data (encrypted).")), 20).pack(fill="x", padx=10,
+                                                                                               pady=8)
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=10, pady=8, side="bottom")
+        box = tk.Text(win, wrap="word", font=FONT, undo=True, height=8)
+        box.insert("1.0", club_data.note_for(notes, coach))
+        box.pack(fill="both", expand=True, padx=10)
+
+        def save_note() -> None:
+            self.cfg["coach_notes"] = club_data.set_note(club_data.clean_notes(self.cfg.get("coach_notes")), coach,
+                                                         box.get("1.0", "end"))
+            save_config(self.cfg)
+            self._fill_coaches_tab()
+            self.status_var.set(f"Note saved for {coach.name}.")
+            win.destroy()
+
+        ttk.Button(row, text="Save note", style="Accent.TButton", command=save_note).pack(side="left")
+        ttk.Button(row, text="Cancel", command=win.destroy).pack(side="right")
+
+    def _ask_passphrase(self, title: str, confirm: bool) -> Optional[str]:
+        from tkinter import simpledialog
+        first = simpledialog.askstring(title, "Passphrase (at least 8 characters). You need it to open the file on "
+                                              "the other computer, so keep it safe; it cannot be recovered.",
+                                       show="*", parent=self)
+        if not first:
+            return None
+        if confirm:
+            again = simpledialog.askstring(title, "Type the passphrase again.", show="*", parent=self)
+            if again != first:
+                messagebox.showwarning(title, "The two passphrases did not match. Nothing was saved.")
+                return None
+        return first
+
+    def export_club_data(self) -> None:
+        """Left the club marks and coach notes, encrypted with a passphrase, to move to another computer."""
+        data = {"left_players": self.cfg.get("left_players"), "coach_notes": self.cfg.get("coach_notes")}
+        if not left_club.clean_marks(data["left_players"]) and not club_data.clean_notes(data["coach_notes"]):
+            messagebox.showinfo("Nothing to export", "There are no left the club marks or coach notes yet.")
+            return
+        passphrase = self._ask_passphrase("Export club data", confirm=True)
+        if passphrase is None:
+            return
+        try:
+            blob = club_data.export_encrypted(data, passphrase)
+        except club_data.ClubDataError as exc:
+            messagebox.showwarning("Export club data", str(exc))
+            return
+        path = filedialog.asksaveasfilename(defaultextension=".prdata",
+                                            filetypes=[("Club data (encrypted)", "*.prdata")],
+                                            initialfile=f"Club_data_{date.today():%Y-%m-%d}.prdata")
+        if path and self._write(lambda: open(path, "wb").write(blob), f"Saved {path}"):
+            messagebox.showinfo("Saved", f"Saved the encrypted club data:\n{path}\n\nOpen it in this app or the "
+                                         "web app on the other computer with Import club data and the passphrase.")
+
+    def import_club_data(self) -> None:
+        path = filedialog.askopenfilename(filetypes=[("Club data (encrypted)", "*.prdata"), ("All files", "*.*")])
+        if not path:
+            return
+        passphrase = self._ask_passphrase("Import club data", confirm=False)
+        if passphrase is None:
+            return
+        try:
+            with open(path, "rb") as fh:
+                incoming = club_data.import_encrypted(fh.read(), passphrase)
+        except (club_data.ClubDataError, OSError) as exc:
+            messagebox.showerror("Import club data", str(exc))
+            return
+        merged = club_data.merge({"left_players": self.cfg.get("left_players"),
+                                  "coach_notes": self.cfg.get("coach_notes")}, incoming)
+        self.cfg.update(merged)
+        save_config(self.cfg)
+        if self.fa_players is not None:
+            self._recompute()
+        self._fill_coaches_tab()
+        messagebox.showinfo("Imported", f"Imported {len(incoming['left_players'])} left the club mark(s) and "
+                                        f"{len(incoming['coach_notes'])} coach note(s), merged with this computer's.")
+
+    def export_updated_officials(self) -> None:
+        """A copy of the managers / club officials file with the FA Team Qualifications Report merged in."""
+        if self.coaches is None:
+            messagebox.showinfo("No FA qualifications report", "Choose the FA qualifications report in Step 1 and "
+                                                               "click Reconcile first.")
+            return
+        staff_path = self.staff_var.get().strip()
+        if staff_path and not os.path.isfile(staff_path):
+            staff_path = ""
+        base = os.path.splitext(os.path.basename(staff_path))[0] if staff_path else "Club_officials"
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel workbook", "*.xlsx")],
+                                            initialfile=f"{base}_updated_{date.today():%Y-%m-%d}.xlsx")
+        if not path:
+            return
+        if staff_path and os.path.abspath(path) == os.path.abspath(staff_path):
+            messagebox.showwarning("Choose another name", "Save the updated file under a new name, so your own "
+                                                          "file stays as it is until you have checked the changes.")
+            return
+        changed = []
+        notes = club_data.clean_notes(self.cfg.get("coach_notes"))
+        if self._write(lambda: changed.append(co.write_updated_officials(path, self.coaches, staff_path, notes)),
+                       f"Saved {path}"):
+            if messagebox.askyesno("Saved", f"Saved the updated officials file:\n{path}\n\n{changed[0]} people "
+                                            "added or updated (coloured rows; see the Changes column). Check it, "
+                                            "then use it as your managers file.\n\nOpen it now?"):
+                open_folder(path)
 
     def send_coach_reminder(self) -> None:
         """A WhatsApp reminder for the selected coach: what is expiring, and placeholder steps to fill in."""
@@ -1020,6 +1178,102 @@ class App(tk.Tk):
                             f"{os.path.basename(self.qual_var.get().strip())}")
         save_config(self.cfg)
 
+    def _build_left_tab(self) -> None:
+        tab = ttk.Frame(self.nb, padding=6)
+        self.nb.add(tab, text="  Left the club  ")
+        self.left_tab = tab
+        top = ttk.Frame(tab)
+        top.pack(fill="x", pady=(0, 6))
+        tip(ttk.Button(top, text="Back in the club (unmark)", command=self.unmark_left),
+            "Select a player to put them back into the results, team sheets and lists.").pack(side="right", anchor="n")
+        self.left_clear_button = tip(ttk.Button(top, text="Clear marks no longer needed", command=self.clear_left),
+                                     "Forget marks for players who are not in the files any more (released in the "
+                                     "FA system).")
+        self.left_clear_button.pack(side="right", anchor="n", padx=(0, 6))
+        autowrap(ttk.Label(top, style="Hint.TLabel", justify="left", text=left_club.LEFT_NOTE)
+                 ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.left_info_var = tk.StringVar()
+        autowrap(ttk.Label(tab, textvariable=self.left_info_var, style="Warn.TLabel")).pack(fill="x", pady=(0, 4))
+        self.left_search_var, self.left_count_var = tk.StringVar(), tk.StringVar()
+        self._search_row(tab, self.left_search_var, self.left_count_var, "Type part of a name or team.",
+                         "Mark players on the Not paying tab, or right-click a player on the Results tab.")
+        self.left_tree = self._make_tree(tab)
+        self._register_table(self.left_tree, self.left_search_var, self.left_count_var)
+
+    def _left_marks(self):
+        return left_club.clean_marks(self.cfg.get("left_players"))
+
+    def _row_from_table(self, tree):
+        """The reconciliation row for the selected line of the Results, Not paying or Left the club table."""
+        sel = tree.selection()
+        if not sel or not self.result:
+            return None
+        if tree is self.tree:
+            idx = tree.index(sel[0])
+            rows = self._visible_rows()
+            return rows[idx] if idx < len(rows) else None
+        values = tree.item(sel[0], "values")
+        name, dob_text = str(values[0]), str(values[1]) if len(values) > 1 else ""
+        pool = self.result.rows if tree is not self.left_tree else getattr(self.result, "left_rows", [])
+        for r in pool:
+            _n, dob, _a = rc._name_dob(r, date.today())
+            if (r.fa_name or r.thrive_name) == name and _cell(dob) == dob_text:
+                return r
+        return None
+
+    def mark_left(self, tree) -> None:
+        row = self._row_from_table(tree)
+        if row is None:
+            messagebox.showinfo("Choose a player", "Click the player who has left the club first.")
+            return
+        name = row.fa_name or row.thrive_name
+        if not messagebox.askyesno("Left the club", f"Mark {name} as left the club?\n\nThey are taken out of the "
+                                   "results, team sheets, the not paying list, counts and the club PDF, and listed on "
+                                   "the Left the club tab, where you can undo it.\n\nRelease them in the Whole Game "
+                                   "System so they drop off the FA report."):
+            return
+        self.cfg["left_players"] = left_club.mark(self._left_marks(), row)
+        save_config(self.cfg)
+        self._recompute()
+        self.status_var.set(f"{name} marked as left the club. See the Left the club tab.")
+
+    def unmark_left(self) -> None:
+        row = self._row_from_table(self.left_tree)
+        if row is None:
+            messagebox.showinfo("Choose a player", "Click the player to put back in the club first.")
+            return
+        self.cfg["left_players"] = left_club.unmark(self._left_marks(), row)
+        save_config(self.cfg)
+        self._recompute()
+        self.status_var.set(f"{row.fa_name or row.thrive_name} is back in the club.")
+
+    def clear_left(self) -> None:
+        left_rows = getattr(self.result, "left_rows", []) if self.result else []
+        found = {left_club.left_id(r) for r in left_rows}
+        stale = [m for m in self._left_marks() if m["id"] not in found]
+        if not stale or not self.result:
+            messagebox.showinfo("Nothing to clear", "Every mark is for a player still in the files.")
+            return
+        if messagebox.askyesno("Clear marks", f"Forget {len(stale)} mark(s) for players who are not in these files "
+                                              "any more?"):
+            self.cfg["left_players"] = [m for m in self._left_marks() if m["id"] in found]
+            save_config(self.cfg)
+            self._fill_left_tab()
+
+    def _fill_left_tab(self) -> None:
+        left_rows = getattr(self.result, "left_rows", []) if self.result else []
+        headers, rows = left_club.left_rows_table(left_rows, self._left_marks())
+        self._set_table(self.left_tree, headers, [([_cell(v) for v in values], (), None, "") for values in rows])
+        self.nb.tab(self.left_tab, text=f"  Left the club ({len(rows)})  " if rows else "  Left the club  ")
+        stale = left_club.unmatched_marks(self._left_marks(), left_rows) if self.result else 0
+        still_fa = sum(1 for r in left_rows if r.fa is not None)
+        parts = []
+        if still_fa:
+            parts.append(f"{still_fa} still in the FA report: release them in the Whole Game System.")
+        if stale:
+            parts.append(f"{stale} mark(s) are for players not in these files any more; you can clear them.")
+        self.left_info_var.set("  ".join(parts))
+
     def _build_not_paying_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
         self.nb.add(tab, text="  Not paying  ")
@@ -1034,6 +1288,11 @@ class App(tk.Tk):
                    "system and Thrive, and whether they have an active mandate. All teams or one team.")
         b_wa.pack(side="right", anchor="n", padx=(0, 6))
         self.export_buttons.append(b_wa)
+        b_left = tip(ttk.Button(top, text="Mark as left the club...", command=lambda: self.mark_left(self.np_tree)),
+                     "Select a player who has left the club but is still in the FA report: they are taken out of "
+                     "this list, the team sheets, counts and the club PDF, and shown on the Left the club tab.")
+        b_left.pack(side="right", anchor="n", padx=(0, 6))
+        self.export_buttons.append(b_left)
         autowrap(ttk.Label(top, style="Hint.TLabel", wraplength=1000, justify="left", text=(
             "Players with no active Thrive mandate, plus players registered with the FA but not found in Thrive: "
             "the ones who will not be paying through Thrive. FA-only players may be in Thrive under another "
@@ -1409,6 +1668,8 @@ class App(tk.Tk):
     def _compute(self, team_map: dict, fuzzy: float) -> rc.Result:
         """The comparison itself. Touches no widgets, so it can run on a background thread."""
         result = rc.reconcile(self.fa_players, self.thrive_players, team_map, fuzzy)
+        # players marked as left the club come out of everything, before the managers are attached
+        result.left_rows = left_club.apply_left(result, left_club.clean_marks(self.cfg.get("left_players")))
         rc.attach_staff(result, self.staff, team_map)
         return result
 
@@ -1439,6 +1700,7 @@ class App(tk.Tk):
         self.cons_checked_var.set(
             ("Not checked, because the Thrive export has no answers for: " + ", ".join(unchecked)
              + ". Add them in Thrive (Contacts > Manage table columns) and export again.") if unchecked else "")
+        self._fill_left_tab()
         labels = rc.team_labels(self.result)
         self.team_choices = {rc.team_choice_label_with_unpaid(self.result, l): l for l in labels}
         self.team_box["values"] = list(self.team_choices)

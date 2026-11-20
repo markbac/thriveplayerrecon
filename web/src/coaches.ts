@@ -57,6 +57,7 @@ export interface Coach {
   name: string;
   teams: string[];
   roles: string[];
+  team_roles: Record<string, string[]>; // team -> FA roles on that team
   coaching: string;
   certs: Record<CertKey, Cert>;
   official: string;
@@ -200,7 +201,7 @@ export function parse_qualifications(sheets: unknown[][][]): CoachesResult {
         let c = coaches.get(key);
         if (!c) {
           c = {
-            fan, name, teams: [], roles: [], coaching: rc._cell(r, coachI), official: '', note: '',
+            fan, name, teams: [], roles: [], team_roles: {}, coaching: rc._cell(r, coachI), official: '', note: '',
             certs: {
               first_aid: parse_cert(r[cols['first aid expiry']]),
               safeguarding: parse_cert(r[cols['safeguarding children expiry']]),
@@ -212,6 +213,10 @@ export function parse_qualifications(sheets: unknown[][][]): CoachesResult {
         if (team && !c.teams.includes(team)) c.teams.push(team);
         const role = rc._cell(r, roleI);
         if (role && !c.roles.includes(role)) c.roles.push(role);
+        if (team && role) {
+          const list = (c.team_roles[team] ??= []);
+          if (!list.includes(role)) list.push(role);
+        }
         c.coaching = c.coaching || rc._cell(r, coachI);
       }
       if (coaches.size) {
@@ -290,6 +295,169 @@ export function reconcile_coaches(result: CoachesResult, officials: Official[]):
     }
   }
   return result;
+}
+
+/** 'U9 White: Assistant Team Coach; U12 Black: Team Coach' (each team with its FA role). */
+export function fa_roles_text(c: Coach): string {
+  return c.teams.map((t) => `${t}: ${(c.team_roles[t] || []).join(', ') || 'no role'}`).join('; ');
+}
+
+/** The club file's role for an FA team role: Team Coach and Team Manager are Manager, Assistant Team Coach is
+ * Assistant manager (as the club officials file notes say); anything else is kept as the FA writes it. */
+export function file_role(faRole: string): string {
+  const r = faRole.toLowerCase();
+  if (r.includes('assist')) return 'Assistant manager';
+  if (['team coach', 'team manager', 'head coach', 'manager', 'coach'].includes(r)) return 'Manager';
+  return faRole;
+}
+
+function mainRole(c: Coach): string {
+  const roles = c.roles.map(file_role);
+  for (const wanted of ['Manager', 'Assistant manager']) if (roles.includes(wanted)) return wanted;
+  return roles[0] || 'Manager';
+}
+
+/** [FA role, name] for everyone the FA report has on a team, managers and coaches first. */
+export function team_staff(result: CoachesResult, team: string): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const c of result.coaches) {
+    for (const t of c.teams) {
+      if (!same_team(t, team)) continue;
+      const roles = c.team_roles[t]?.length ? c.team_roles[t] : ['Team official'];
+      for (const role of roles) out.push([role, c.name]);
+    }
+  }
+  const rank: Record<string, number> = { 'team manager': 0, 'team coach': 1, 'assistant team coach': 2 };
+  return out.sort((a, b) => (rank[a[0].toLowerCase()] ?? 3) - (rank[b[0].toLowerCase()] ?? 3) ||
+    cmp(surnameKey(a[1]), surnameKey(b[1])));
+}
+
+/** True when the FA report lists this team (so a missing person there is a real difference). */
+export function covers_team(result: CoachesResult, team: string): boolean {
+  return result.teams.some((t) => same_team(t.team, team));
+}
+
+// --------------------------------------------------------------------------- updated officials file
+
+export const UPDATE_STANDARD_HEADERS = ['Name', 'Role', 'Second role', 'Exec Member', 'Team(s)', 'Phone', 'Email'];
+export const UPDATE_EXTRA_HEADERS = ['FAN', 'FA teams and roles', 'Notes', 'Changes'];
+export const ADDED = 'added';
+export const UPDATED = 'updated';
+export const NOT_IN_FA = 'not in FA';
+
+function cellText(v: unknown): string {
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    return rc.formatDate({ year: v.getUTCFullYear(), month: v.getUTCMonth() + 1, day: v.getUTCDate() });
+  }
+  return rc._s(v);
+}
+
+/** The officials (or one-row-per-person managers) sheet with the FA report merged in. rows: the sheet's rows, or
+ * null for no file. Returns [headers, [values, status]] where status is 'added', 'updated', 'not in FA' or ''.
+ * Nobody is removed; names, roles, phones and emails already in the file are kept. Mirrors src/coaches.py. */
+export function updated_officials_table(
+  rows: unknown[][] | null,
+  result: CoachesResult,
+  noteFor: ((c: Coach) => string) | null = null
+): [string[], Array<[string[], string]>] {
+  let headerI: number | null = null;
+  let cols: Record<string, number> = {};
+  if (rows) {
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const c: Record<string, number> = {};
+      (rows[i] || []).forEach((v, j) => {
+        const h = rc._hdr(v);
+        if (h && !(h in c)) c[h] = j;
+      });
+      if (rc._find_col(c, ['name', 'full name', 'person', 'staff']) !== null &&
+          rc._find_col(c, ['role', 'position', 'job']) !== null) {
+        headerI = i;
+        cols = c;
+        break;
+      }
+    }
+  }
+  let headers: string[];
+  let body: string[][];
+  if (headerI === null || !rows) {
+    headers = [...UPDATE_STANDARD_HEADERS];
+    body = [];
+    cols = Object.fromEntries(headers.map((h, j) => [h.toLowerCase(), j]));
+  } else {
+    const width = Math.max(...rows.map((r) => (r || []).length));
+    headers = Array.from({ length: width }, (_, j) => cellText((rows[headerI as number] || [])[j]));
+    while (headers.length && !headers[headers.length - 1]) headers.pop();
+    body = rows.slice(headerI + 1)
+      .map((r) => headers.map((_, j) => cellText((r || [])[j])))
+      .filter((r) => r.some((v) => v.trim()));
+  }
+  const nameI = rc._find_col(cols, ['name', 'full name', 'person', 'staff']) as number;
+  const roleI = rc._find_col(cols, ['role', 'position', 'job']) as number;
+  let teamI = rc._find_col(cols, rc.TEAM_HEADERS);
+  const secondI = rc._find_col(cols, ['second role', 'other role', 'additional role', 'role 2', 'also']);
+  if (teamI === null) {
+    headers.push('Team(s)');
+    teamI = headers.length - 1;
+    body = body.map((r) => [...r, '']);
+  }
+  // FAN, FA teams and roles, Notes and Changes: the file's own column when it has one, else a new one at the end
+  const lower = headers.map((h) => h.trim().toLowerCase());
+  const aliases: Record<string, string[]> = { Notes: ['notes', 'note', 'comments', 'comment'], FAN: ['fan', 'fan id', 'fan number'] };
+  const extra: Record<string, number> = {};
+  for (const h of UPDATE_EXTRA_HEADERS) {
+    const names = aliases[h] || [h.toLowerCase()];
+    let found = lower.findIndex((x) => names.includes(x));
+    if (found < 0) {
+      headers.push(h);
+      found = headers.length - 1;
+    }
+    extra[h] = found;
+  }
+  const [fanC, rolesC, noteC, changeC] = UPDATE_EXTRA_HEADERS.map((h) => extra[h]);
+  const out: Array<[string[], string]> = [];
+  const matched = new Set<Coach>();
+  for (const r0 of body) {
+    const r = [...r0, ...Array(Math.max(0, headers.length - r0.length)).fill('')];
+    const name = r[nameI].trim();
+    const roles = [r[roleI], secondI !== null ? r[secondI] : ''].filter(Boolean);
+    const coach = name ? result.coaches.find((c) => !matched.has(c) && same_person(c.name, name)) : undefined;
+    let status = '';
+    const changes: string[] = [];
+    if (coach) {
+      matched.add(coach);
+      const current = rc._split_list(r[teamI]);
+      const missing = coach.teams.filter((t) => !current.some((x) => same_team(t, x)));
+      if (missing.length) {
+        r[teamI] = [...current, ...missing].join(', ');
+        changes.push('Added FA team(s): ' + missing.join(', '));
+      }
+      if (coach.name.trim().toLowerCase() !== name.toLowerCase()) changes.push(`FA name: ${coach.name}`);
+      const notOnFa = current.filter((t) => covers_team(result, t) && !coach.teams.some((x) => same_team(t, x)));
+      if (notOnFa.length) changes.push(`Not on ${notOnFa.join(', ')} in the FA report`);
+      r[fanC] = coach.fan;
+      r[rolesC] = fa_roles_text(coach);
+      if (noteFor && noteFor(coach)) r[noteC] = noteFor(coach);
+      status = missing.length ? UPDATED : '';
+    } else if (name && roles.some(isTeamRole) && rc._split_list(r[teamI]).length) {
+      status = NOT_IN_FA;
+      changes.push('Not in the FA report as a team official');
+    }
+    r[changeC] = changes.join('; ');
+    out.push([r, status]);
+  }
+  for (const c of result.coaches) {
+    if (matched.has(c)) continue;
+    const r = headers.map(() => '');
+    r[nameI] = c.name;
+    r[roleI] = mainRole(c);
+    r[teamI] = c.teams.join(', ');
+    r[fanC] = c.fan;
+    r[rolesC] = fa_roles_text(c);
+    r[changeC] = 'Added from the FA report';
+    if (noteFor) r[noteC] = noteFor(c);
+    out.push([r, ADDED]);
+  }
+  return [headers, out];
 }
 
 // --------------------------------------------------------------------------- WhatsApp reminder

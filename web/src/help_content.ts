@@ -107,7 +107,7 @@ export const HELP_SECTIONS: Array<[string, string, string]> = [
 3. On the Results tab, pick a view on the left. Click (or press Enter on) any row to see all its details.
 4. Fix anything that needs attention in Thrive or the FA system.
 5. Use Share (Step 3) to download Excel files. "Export team files for managers" downloads a .zip containing one file per team. "Club PDF: teams and players" downloads one PDF on the club template listing every team, its coaches and each player's FA, Thrive and paying status.
-6. Coaches: choose the FA Team Qualifications Report (Whole Game System, Reports > Team Qualifications Report) in Step 1, with or without the player files, and click Reconcile. The Coaches tab shows every team official's First Aid, Safeguarding and DBS expiry in bands (expired, within 1 month, 1 to 3 months, 3 to 6 months, 6 months or more), compares them with your managers or club officials file, and can send a coach a WhatsApp reminder. The club PDF adds a coaches' qualifications section.
+6. Coaches: choose the FA Team Qualifications Report (Whole Game System, Reports > Team Qualifications Report) in Step 1, with or without the player files, and click Reconcile. The Coaches tab shows every team official's First Aid, Safeguarding and DBS expiry in bands (expired, within 1 month, 1 to 3 months, 3 to 6 months, 6 months or more), compares them with your managers or club officials file, can send a coach a WhatsApp reminder, and can download an updated officials file with the FA report merged in. The club PDF adds a coaches' qualifications section.
 
 Nothing is uploaded and nothing is changed in Thrive or the FA system. The tool only reads your files locally on your computer.`,
   ],
@@ -208,7 +208,7 @@ Choose (ignore) for Thrive groups with no FA team, such as training squads. Chan
   [
     'privacy',
     'Looking after the data',
-    `The files contain children's personal and medical details, which are protected by UK GDPR. The web app works entirely inside your browser on your computer: files are read, compared and exported locally and are never uploaded anywhere. Outgoing network connections are blocked by the page's Content Security Policy (connect-src 'none'), and browser storage holds only your team mappings and preferences — never player data. A reminder appears every time you export.
+    `The files contain children's personal and medical details, which are protected by UK GDPR. The web app works entirely inside your browser on your computer: files are read, compared and exported locally and are never uploaded anywhere. Outgoing network connections are blocked by the page's Content Security Policy (connect-src 'none'), and browser storage holds your team mappings and preferences, players marked as left the club (only as one-way codes made from their FAN ID, never names) and your notes on coaches (kept against a one-way code of the coach's FAN ID). Export club data saves the marks and notes in a file encrypted with a passphrase, so they can be moved to another computer without being readable on the way. A reminder appears every time you export.
 
 Keep the exports and anything you save secure, only share team files with that team's manager, and delete files when they are no longer needed. This is also an FA requirement for the registration report.`,
   ],
