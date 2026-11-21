@@ -250,7 +250,7 @@ export function fa_cell(source: string, row: rc.Row): string {
 
 export function paying_cell(row: rc.Row): string {
   const status = rc.paying_status(row);
-  if (status === 'Yes') return 'Yes';
+  if (status.startsWith('Yes')) return 'Yes';
   if (status.startsWith('No')) return 'No';
   return status.startsWith('Unknown') ? 'Unknown' : 'Not expected';
 }

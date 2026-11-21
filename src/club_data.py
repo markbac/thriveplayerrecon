@@ -11,6 +11,7 @@ from datetime import date
 from typing import Dict, List, Optional
 
 import left_club
+import paid_outside
 
 FORMAT = "PlayerReconcile club data"
 VERSION = 1
@@ -85,7 +86,8 @@ def import_file_notes(notes: Dict[str, Dict[str, str]], officials, coaches,
 
 
 def merge(current: dict, incoming: dict) -> dict:
-    """Combine club data: every left-the-club mark from both, and for each coach the newer note."""
+    """Combine club data: every left-the-club mark from both, the newer paid outside Thrive mark for each player,
+    and for each coach the newer note."""
     marks = left_club.clean_marks(current.get("left_players"))
     known = {m["id"] for m in marks}
     marks += [m for m in left_club.clean_marks(incoming.get("left_players")) if m["id"] not in known]
@@ -93,7 +95,11 @@ def merge(current: dict, incoming: dict) -> dict:
     for key, value in clean_notes(incoming.get("coach_notes")).items():
         if key not in notes or value["updated"] >= notes[key]["updated"]:
             notes[key] = value
-    return {"left_players": marks, "coach_notes": notes}
+    paid = {m["id"]: m for m in paid_outside.clean_marks(current.get("paid_outside"))}
+    for m in paid_outside.clean_marks(incoming.get("paid_outside")):
+        if m["id"] not in paid or m["marked"] >= paid[m["id"]]["marked"]:
+            paid[m["id"]] = m
+    return {"left_players": marks, "coach_notes": notes, "paid_outside": list(paid.values())}
 
 
 def _key(passphrase: str, salt: bytes) -> bytes:
@@ -106,7 +112,9 @@ def export_encrypted(data: dict, passphrase: str) -> bytes:
     if len(passphrase) < 8:
         raise ClubDataError("Use a passphrase of at least 8 characters.")
     payload = {"left_players": left_club.clean_marks(data.get("left_players")),
-               "coach_notes": clean_notes(data.get("coach_notes")), "exported": date.today().isoformat()}
+               "coach_notes": clean_notes(data.get("coach_notes")),
+               "paid_outside": paid_outside.clean_marks(data.get("paid_outside")),
+               "exported": date.today().isoformat()}
     salt, iv = os.urandom(16), os.urandom(12)
     sealed = AESGCM(_key(passphrase, salt)).encrypt(iv, json.dumps(payload).encode("utf-8"), FORMAT.encode())
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731
@@ -116,7 +124,8 @@ def export_encrypted(data: dict, passphrase: str) -> bytes:
 
 
 def import_encrypted(blob: bytes, passphrase: str) -> dict:
-    """Open an encrypted club data file: {'left_players': [...], 'coach_notes': {...}}."""
+    """Open an encrypted club data file: {'left_players': [...], 'coach_notes': {...}, 'paid_outside': [...]}.
+    Files from before paid outside Thrive marks existed open with none."""
     from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     try:
@@ -133,7 +142,8 @@ def import_encrypted(blob: bytes, passphrase: str) -> dict:
     except (InvalidTag, ValueError):
         raise ClubDataError("Wrong passphrase, or the file is damaged.") from None
     return {"left_players": left_club.clean_marks(inner.get("left_players")),
-            "coach_notes": clean_notes(inner.get("coach_notes"))}
+            "coach_notes": clean_notes(inner.get("coach_notes")),
+            "paid_outside": paid_outside.clean_marks(inner.get("paid_outside"))}
 
 
 def notes_list(notes: Dict[str, Dict[str, str]], coaches) -> List[tuple]:

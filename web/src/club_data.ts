@@ -1,8 +1,10 @@
 /**
- * Club data kept between runs: players marked as left the club (one-way hashes) and notes on coaches (kept against
+ * Club data kept between runs: players marked as left the club or as paying outside Thrive (one-way hashes) and
+ * notes on coaches (kept against
  * a one-way hash of the coach's FAN ID), stored in this browser under its own key. It can be moved to another
  * computer in an encrypted file: AES-256-GCM with a key from the passphrase (PBKDF2-SHA256), the same format as the
- * desktop app (src/club_data.py and src/left_club.py), so either app opens the other's file. Nothing is uploaded.
+ * desktop app (src/club_data.py, src/left_club.py and src/paid_outside.py), so either app opens the other's file.
+ * Nothing is uploaded.
  */
 import * as rc from './reconcile_core';
 
@@ -11,10 +13,17 @@ export const FORMAT = 'PlayerReconcile club data';
 export const ITERATIONS = 310000;
 const LEFT_SALT = 'PlayerReconcile-left-v1|';
 const COACH_SALT = 'PlayerReconcile-coach-v1|';
+const PAID_SALT = 'PlayerReconcile-paid-v1|';
 export const MAX_NOTE = 2000;
 
 export interface LeftMark {
   id: string;
+  marked: string;
+}
+export type PaidKind = 'direct' | 'full';
+export interface PaidMark {
+  id: string;
+  kind: PaidKind;
   marked: string;
 }
 export interface CoachNote {
@@ -24,6 +33,8 @@ export interface CoachNote {
 export interface ClubData {
   left_players: LeftMark[];
   coach_notes: Record<string, CoachNote>;
+  /** Players marked as paying outside Thrive (missing in files from before this existed). */
+  paid_outside?: PaidMark[];
 }
 
 export class ClubDataError extends Error {}
@@ -166,6 +177,86 @@ export function left_rows_table(leftRows: rc.Row[], marks: LeftMark[], today: rc
   return [LEFT_HEADERS, rows];
 }
 
+// --------------------------------------------------------------------------- paying outside Thrive
+// Players who pay the club directly, or have already paid in full. Marked players count as paying: they are not on
+// the Not paying list or in the not paying messages. Paid in full shows exactly like an active Thrive mandate.
+
+export const PAID_KINDS: Record<PaidKind, string> = { direct: rc.PAID_DIRECT, full: rc.PAID_IN_FULL };
+export const PAID_NOTE =
+  'Players marked as paying outside Thrive: they pay the club directly, or have already paid in full. They count ' +
+  'as paying, so they are not on the Not paying list or in the not paying WhatsApp messages. Clear a mark when it ' +
+  'no longer applies (for example a new season).';
+
+export function paid_id(row: rc.Row): string {
+  return sha256Hex(PAID_SALT + left_key(row));
+}
+
+export function clean_paid_marks(raw: unknown): PaidMark[] {
+  const out: PaidMark[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const id = String(o.id ?? '').toLowerCase();
+    const kind = String(o.kind ?? '');
+    const marked = String(o.marked ?? '');
+    if (/^[0-9a-f]{64}$/.test(id) && (kind === 'direct' || kind === 'full') && !seen.has(id)) {
+      seen.add(id);
+      out.push({ id, kind, marked: /^\d{4}-\d{2}-\d{2}$/.test(marked) ? marked : '' });
+    }
+  }
+  return out;
+}
+
+/** Mark the player (replacing any earlier mark of the other kind). */
+export function mark_paid(marks: PaidMark[], row: rc.Row, kind: PaidKind,
+  today: rc.LocalDate = rc.todayLocalDate()): PaidMark[] {
+  const id = paid_id(row);
+  return [...marks.filter((m) => m.id !== id), { id, kind, marked: isoDate(today) }];
+}
+
+export function unmark_paid(marks: PaidMark[], row: rc.Row): PaidMark[] {
+  const id = paid_id(row);
+  return marks.filter((m) => m.id !== id);
+}
+
+/** Set Row.paid_outside on the marked players. Returns the marked players, for the Paying outside Thrive list. */
+export function apply_paid(result: rc.Result, marks: PaidMark[]): rc.Row[] {
+  const kinds = new Map(marks.map((m) => [m.id, m.kind]));
+  const found: rc.Row[] = [];
+  for (const r of result.rows) {
+    const kind = kinds.get(paid_id(r));
+    r.paid_outside = kind ? PAID_KINDS[kind] : '';
+    if (r.paid_outside) {
+      found.push(r);
+      if (r.paid_outside === rc.PAID_IN_FULL && r.th) r.mandate = rc._mandate_text(r);
+    }
+  }
+  return found;
+}
+
+export function unmatched_paid_marks(marks: PaidMark[], paidRows: rc.Row[]): number {
+  const found = new Set(paidRows.map(paid_id));
+  return marks.filter((m) => !found.has(m.id)).length;
+}
+
+export const PAID_HEADERS = ['Player', 'DOB', 'Age', 'Team(s)', 'Paying', 'In Thrive', 'Thrive mandate', 'Marked'];
+
+export function paid_rows_table(paidRows: rc.Row[], marks: PaidMark[], today: rc.LocalDate = rc.todayLocalDate()):
+  [string[], string[][]] {
+  const when = new Map(marks.map((m) => [m.id, m.marked]));
+  const rows = paidRows.map((r) => {
+    const [name, dob, age] = rc._name_dob(r, today);
+    const marked = when.get(paid_id(r)) || '';
+    return [name, rc.formatDate(dob), String(age), r.fa_teams || r.thrive_teams || r.expected_fa_teams,
+      r.paid_outside, r.th ? 'Yes' : 'No', !r.th ? 'Not in Thrive' : r.th.mandate || 'None',
+      marked ? marked.split('-').reverse().join('/') : ''];
+  });
+  const surname = (n: string) => (n.split(/\s+/).filter(Boolean).pop() || '').toLowerCase();
+  rows.sort((a, b) => a[3].toLowerCase().localeCompare(b[3].toLowerCase()) || surname(a[0]).localeCompare(surname(b[0])));
+  return [PAID_HEADERS, rows];
+}
+
 // --------------------------------------------------------------------------- coach notes
 
 export function coach_id(coach: { fan: string; name: string }): string {
@@ -230,7 +321,8 @@ export function import_file_notes(
   return [out, taken];
 }
 
-/** Combine club data: every left-the-club mark from both, and for each coach the newer note. */
+/** Combine club data: every left-the-club mark from both, the newer paying outside Thrive mark for each player,
+ * and for each coach the newer note. */
 export function merge(current: ClubData, incoming: ClubData): ClubData {
   const marks = clean_marks(current.left_players);
   const known = new Set(marks.map((m) => m.id));
@@ -239,7 +331,12 @@ export function merge(current: ClubData, incoming: ClubData): ClubData {
   for (const [key, value] of Object.entries(clean_notes(incoming.coach_notes))) {
     if (!notes[key] || value.updated >= notes[key].updated) notes[key] = value;
   }
-  return { left_players: marks, coach_notes: notes };
+  const paid = new Map(clean_paid_marks(current.paid_outside).map((m) => [m.id, m]));
+  for (const m of clean_paid_marks(incoming.paid_outside)) {
+    const had = paid.get(m.id);
+    if (!had || m.marked >= had.marked) paid.set(m.id, m);
+  }
+  return { left_players: marks, coach_notes: notes, paid_outside: [...paid.values()] };
 }
 
 // --------------------------------------------------------------------------- browser storage
@@ -247,17 +344,20 @@ export function merge(current: ClubData, incoming: ClubData): ClubData {
 export function loadClubData(storage: Storage): ClubData {
   try {
     const raw = JSON.parse(storage.getItem(STORAGE_KEY) || '{}');
-    return { left_players: clean_marks(raw.left_players), coach_notes: clean_notes(raw.coach_notes) };
+    return { left_players: clean_marks(raw.left_players), coach_notes: clean_notes(raw.coach_notes),
+      paid_outside: clean_paid_marks(raw.paid_outside) };
   } catch {
-    return { left_players: [], coach_notes: {} };
+    return { left_players: [], coach_notes: {}, paid_outside: [] };
   }
 }
 
 export function saveClubData(storage: Storage, data: ClubData): void {
   try {
-    const clean = { left_players: clean_marks(data.left_players), coach_notes: clean_notes(data.coach_notes) };
-    if (!clean.left_players.length && !Object.keys(clean.coach_notes).length) storage.removeItem(STORAGE_KEY);
-    else storage.setItem(STORAGE_KEY, JSON.stringify(clean));
+    const clean = { left_players: clean_marks(data.left_players), coach_notes: clean_notes(data.coach_notes),
+      paid_outside: clean_paid_marks(data.paid_outside) };
+    if (!clean.left_players.length && !Object.keys(clean.coach_notes).length && !clean.paid_outside.length) {
+      storage.removeItem(STORAGE_KEY);
+    } else storage.setItem(STORAGE_KEY, JSON.stringify(clean));
   } catch {
     // storage full or blocked (private browsing): the marks last until the page is closed
   }
@@ -280,7 +380,7 @@ export async function exportEncrypted(data: ClubData, passphrase: string): Promi
   if (passphrase.length < 8) throw new ClubDataError('Use a passphrase of at least 8 characters.');
   const payload = {
     left_players: clean_marks(data.left_players), coach_notes: clean_notes(data.coach_notes),
-    exported: isoDate(rc.todayLocalDate()),
+    paid_outside: clean_paid_marks(data.paid_outside), exported: isoDate(rc.todayLocalDate()),
   };
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -315,7 +415,8 @@ export async function importEncrypted(text: string, passphrase: string): Promise
     const plain = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(FORMAT) }, key, sealed);
     const inner = JSON.parse(new TextDecoder().decode(plain));
-    return { left_players: clean_marks(inner.left_players), coach_notes: clean_notes(inner.coach_notes) };
+    return { left_players: clean_marks(inner.left_players), coach_notes: clean_notes(inner.coach_notes),
+      paid_outside: clean_paid_marks(inner.paid_outside) };
   } catch {
     throw new ClubDataError('Wrong passphrase, or the file is damaged.');
   }

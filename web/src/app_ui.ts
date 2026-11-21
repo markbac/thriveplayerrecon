@@ -199,8 +199,9 @@ export class WebApp {
   qualFile: ChosenFile | null = null;
   staffRemembered = false;
   coaches: CoachesModule.CoachesResult | null = null;
-  clubData: clubData.ClubData = { left_players: [], coach_notes: {} };
+  clubData: clubData.ClubData = { left_players: [], coach_notes: {}, paid_outside: [] };
   leftRows: rc.Row[] = [];
+  paidRows: rc.Row[] = [];
   coachFilter = 'All coaches';
   coachSearch = '';
 
@@ -212,7 +213,7 @@ export class WebApp {
   runFilesKey: string | null = null;
   busy = false;
 
-  activeTab: 'results' | 'teams' | 'not-paying' | 'consents' | 'coaches' | 'left' | 'mappings' = 'results';
+  activeTab: 'results' | 'teams' | 'not-paying' | 'consents' | 'coaches' | 'left' | 'paid' | 'mappings' = 'results';
   currentView = 'All players';
   resultsSearch = '';
   resultsSort: { col: keyof rc.Row | null; desc: boolean } = { col: null, desc: false };
@@ -372,6 +373,7 @@ export class WebApp {
           <button type="button" role="tab" class="tab-btn" id="tab-btn-consents" aria-selected="false" aria-controls="panel-consents" data-tab="consents">Missing consents</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-coaches" aria-selected="false" aria-controls="panel-coaches" data-tab="coaches">Coaches</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-left" aria-selected="false" aria-controls="panel-left" data-tab="left">Left the club</button>
+          <button type="button" role="tab" class="tab-btn" id="tab-btn-paid" aria-selected="false" aria-controls="panel-paid" data-tab="paid">Paying outside Thrive</button>
           <button type="button" role="tab" class="tab-btn" id="tab-btn-mappings" aria-selected="false" aria-controls="panel-mappings" data-tab="mappings">Team mappings</button>
         </div>
 
@@ -495,6 +497,7 @@ export class WebApp {
             </p>
             <div class="panel-top-actions">
               <button type="button" id="btn-np-left" class="export-action-btn" disabled title="Players who have left the club but are still in the FA report: taken out of this list, the team sheets, counts and the club PDF">Mark as left the club...</button>
+              <button type="button" id="btn-np-paid" class="export-action-btn" disabled title="Players who pay the club directly, or have already paid in full: taken off this list and counted as paying. Paid in full shows exactly like an active Thrive direct debit">Paying outside Thrive...</button>
               <button type="button" id="btn-np-whatsapp" class="export-action-btn" disabled>Copy for WhatsApp...</button>
               <button type="button" id="btn-np-export" class="export-action-btn" disabled>Export this list...</button>
             </div>
@@ -605,6 +608,23 @@ export class WebApp {
             <table class="data-table" id="table-left" aria-label="Players marked as left the club">
               <thead id="thead-left"></thead>
               <tbody id="tbody-left"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Panel: Paying outside Thrive -->
+        <section id="panel-paid" role="tabpanel" aria-labelledby="tab-btn-paid" class="tabpanel" hidden>
+          <div class="panel-top-row">
+            <p class="view-desc panel-top-desc" id="paid-note"></p>
+            <div class="panel-top-actions">
+              <button type="button" id="btn-paid-clear">Clear marks no longer needed</button>
+            </div>
+          </div>
+          <p class="toolbar-warn warn-block" id="paid-info"></p>
+          <div class="table-wrapper">
+            <table class="data-table" id="table-paid" aria-label="Players marked as paying outside Thrive">
+              <thead id="thead-paid"></thead>
+              <tbody id="tbody-paid"></tbody>
             </table>
           </div>
         </section>
@@ -726,6 +746,21 @@ export class WebApp {
       void this.renderCoachesTab();
     });
     this.root.querySelector('#btn-np-left')?.addEventListener('click', () => this.openMarkLeftModal());
+    this.root.querySelector('#btn-np-paid')?.addEventListener('click', () => this.openMarkPaidModal());
+    this.root.querySelector('#btn-paid-clear')?.addEventListener('click', () => {
+      const found = new Set(this.paidRows.map(clubData.paid_id));
+      const marks = this.clubData.paid_outside || [];
+      const stale = marks.filter((m) => !found.has(m.id)).length;
+      if (!stale || !this.result) {
+        this.showMessageModal('Nothing to clear', 'Every mark is for a player still in the files.');
+        return;
+      }
+      this.openConfirmModal('Clear marks', `Forget ${stale} mark(s) for players who are not in these files any more?`, () => {
+        this.clubData.paid_outside = marks.filter((m) => found.has(m.id));
+        clubData.saveClubData(this.storage, this.clubData);
+        this.renderPaidTab();
+      });
+    });
     this.root.querySelector('#btn-left-clear')?.addEventListener('click', () => {
       const found = new Set(this.leftRows.map(clubData.left_id));
       const stale = this.clubData.left_players.filter((m) => !found.has(m.id)).length;
@@ -1190,6 +1225,7 @@ export class WebApp {
       'consents',
       'coaches',
       'left',
+      'paid',
       'mappings',
     ];
     for (const p of panels) {
@@ -1493,7 +1529,133 @@ export class WebApp {
     this.openCustomModal('Mark as left the club', body, footer);
   }
 
+  /** Choose players (on the not paying list) who pay the club directly or have already paid in full. */
+  private openMarkPaidModal(): void {
+    if (!this.result) return;
+    const [, npRows] = rc.not_paying_report(this.result);
+    const today = rc.todayLocalDate();
+    const candidates = this.result.rows.filter((r) => npRows.some(([v]) => {
+      const [name, dob] = rc._name_dob(r, today);
+      return v[0] === name && rc.formatDate(v[1] as rc.LocalDate | null) === rc.formatDate(dob);
+    }));
+    const body = document.createElement('div');
+    const desc = document.createElement('p');
+    desc.className = 'view-desc';
+    desc.textContent = 'Tick the players who pay outside Thrive. They are taken off the not paying list and messages and counted as paying, and listed on the Paying outside Thrive tab, where you can undo it. Only a one-way code is stored in this browser, not their name.';
+    body.appendChild(desc);
+    const kinds = document.createElement('fieldset');
+    kinds.className = 'paid-kind';
+    const legend = document.createElement('legend');
+    legend.textContent = 'They...';
+    kinds.appendChild(legend);
+    const radios: Array<[HTMLInputElement, clubData.PaidKind]> = [];
+    for (const [kind, text] of [
+      ['direct', 'Pay the club directly (shown as "Yes (pays the club directly)")'],
+      ['full', 'Have paid in full (shown exactly as if set up with an active Thrive direct debit)'],
+    ] as Array<[clubData.PaidKind, string]>) {
+      const label = document.createElement('label');
+      label.className = 'checkbox-row';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'paid-kind';
+      radio.checked = kind === 'direct';
+      const span = document.createElement('span');
+      span.textContent = text;
+      label.append(radio, span);
+      kinds.appendChild(label);
+      radios.push([radio, kind]);
+    }
+    body.appendChild(kinds);
+    const list = document.createElement('div');
+    list.className = 'left-pick-list';
+    const boxes: Array<[HTMLInputElement, rc.Row]> = [];
+    for (const r of candidates) {
+      const label = document.createElement('label');
+      label.className = 'checkbox-row';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      const span = document.createElement('span');
+      const [name] = rc._name_dob(r, today);
+      span.textContent = `${name} (${r.fa_teams || r.thrive_teams || 'no team'}${r.fa ? ', FAN ' + r.fa.fan_id : ''})`;
+      label.append(box, span);
+      list.appendChild(label);
+      boxes.push([box, r]);
+    }
+    if (!candidates.length) list.textContent = 'Nobody is on the not paying list.';
+    body.appendChild(list);
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer-right';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => this.closeModal());
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'btn-primary';
+    ok.textContent = 'Mark as paying';
+    ok.addEventListener('click', () => {
+      const chosen = boxes.filter(([b]) => b.checked).map(([, r]) => r);
+      const kind = (radios.find(([r]) => r.checked) || radios[0])[1];
+      this.closeModal();
+      if (!chosen.length) return;
+      for (const r of chosen) {
+        this.clubData.paid_outside = clubData.mark_paid(this.clubData.paid_outside || [], r, kind);
+      }
+      this.saveClubDataAndRecompute(`${chosen.length} player(s) marked as ${clubData.PAID_KINDS[kind].toLowerCase()}. See the Paying outside Thrive tab.`);
+    });
+    footer.append(cancel, ok);
+    this.openCustomModal('Paying outside Thrive', body, footer);
+  }
+
+  private renderPaidTab(): void {
+    const tabBtn = this.root.querySelector('#tab-btn-paid') as HTMLElement | null;
+    if (!tabBtn) return;
+    const marks = this.clubData.paid_outside || [];
+    (this.root.querySelector('#paid-note') as HTMLElement).textContent = clubData.PAID_NOTE;
+    const info = this.root.querySelector('#paid-info') as HTMLElement;
+    const thead = this.root.querySelector('#thead-paid') as HTMLElement;
+    const tbody = this.root.querySelector('#tbody-paid') as HTMLElement;
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    const [headers, rows] = clubData.paid_rows_table(this.paidRows, marks);
+    tabBtn.textContent = rows.length ? `Paying outside Thrive (${rows.length})` : 'Paying outside Thrive';
+    const stale = this.result ? clubData.unmatched_paid_marks(marks, this.paidRows) : 0;
+    info.textContent = stale ? `${stale} mark(s) are for players not in these files any more; you can clear them.`
+      : !this.result && marks.length ? `${marks.length} player(s) marked. Click Reconcile to see them.` : '';
+    const trHead = document.createElement('tr');
+    for (const h of [...headers, '']) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      trHead.appendChild(th);
+    }
+    thead.appendChild(trHead);
+    rows.forEach((vals) => {
+      const row = this.paidRows.find((r) => rc._name_dob(r, rc.todayLocalDate())[0] === vals[0] &&
+        rc.formatDate(rc._name_dob(r, rc.todayLocalDate())[1]) === vals[1]);
+      const tr = document.createElement('tr');
+      for (const v of vals) {
+        const td = document.createElement('td');
+        td.textContent = v;
+        tr.appendChild(td);
+      }
+      const td = document.createElement('td');
+      if (row) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Clear mark';
+        btn.addEventListener('click', () => {
+          this.clubData.paid_outside = clubData.unmark_paid(this.clubData.paid_outside || [], row);
+          this.saveClubDataAndRecompute(`${vals[0]} is checked against Thrive again.`);
+        });
+        td.appendChild(btn);
+      }
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
+  }
+
   private renderLeftTab(): void {
+    this.renderPaidTab();
     const tabBtn = this.root.querySelector('#tab-btn-left') as HTMLElement;
     (this.root.querySelector('#left-note') as HTMLElement).textContent = clubData.LEFT_NOTE;
     const info = this.root.querySelector('#left-info') as HTMLElement;
@@ -1597,8 +1759,9 @@ export class WebApp {
   }
 
   private async exportClubData(): Promise<void> {
-    if (!this.clubData.left_players.length && !Object.keys(this.clubData.coach_notes).length) {
-      this.showMessageModal('Nothing to export', 'There are no left the club marks or coach notes yet.');
+    if (!this.clubData.left_players.length && !Object.keys(this.clubData.coach_notes).length &&
+      !(this.clubData.paid_outside || []).length) {
+      this.showMessageModal('Nothing to export', 'There are no player marks or coach notes yet.');
       return;
     }
     const passphrase = await this.askPassphrase('Export club data', true);
@@ -1619,7 +1782,7 @@ export class WebApp {
       this.recompute();
       this.renderLeftTab();
       await this.renderCoachesTab();
-      this.showMessageModal('Imported', `Imported ${incoming.left_players.length} left the club mark(s) and ${Object.keys(incoming.coach_notes).length} coach note(s), merged with this browser's.`);
+      this.showMessageModal('Imported', `Imported ${incoming.left_players.length} left the club mark(s), ${(incoming.paid_outside || []).length} paying outside Thrive mark(s) and ${Object.keys(incoming.coach_notes).length} coach note(s), merged with this browser's.`);
     } catch (exc) {
       this.showMessageModal('Import club data', exc instanceof Error ? exc.message : String(exc));
     }
@@ -1786,6 +1949,7 @@ export class WebApp {
     );
     // players marked as left the club come out of everything, before the managers are attached
     this.leftRows = clubData.apply_left(res, this.clubData.left_players);
+    this.paidRows = clubData.apply_paid(res, this.clubData.paid_outside || []);
     rc.attach_staff(res, this.staff, this.settings.team_map);
     return res;
   }

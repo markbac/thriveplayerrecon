@@ -5,7 +5,7 @@
 
 export const APP_NAME = 'PlayerReconcile';
 export const APP_TITLE = 'Player Reconciliation';
-export const VERSION = '1.11.0';
+export const VERSION = '1.12.0';
 // Stamped by Vite at build time (vite.config.ts), in UK time, so it never needs editing by hand.
 declare const __BUILD_DATETIME__: string | undefined;
 export const BUILD_DATETIME: string =
@@ -17,6 +17,10 @@ export const NO_FA = 'No FA needed';
 export const FA_NOT_CHECKED = 'FA not checked';
 /** Results views that compare against the FA report, so are not checked in a Thrive-only run. */
 export const FA_VIEWS = ['In Thrive, not in FA', 'In FA, not in Thrive', 'Check match', 'Team differs'];
+// Players marked as paying outside Thrive (set from the saved marks after reconciling): they count as paying and are
+// not flagged on the Not paying list, the team sheets or the WhatsApp messages
+export const PAID_DIRECT = 'Pays the club directly';
+export const PAID_IN_FULL = 'Paid in full'; // shown exactly as an active Thrive mandate, with no note
 
 export const CLUB = 'Wilpshire Wanderers ';
 
@@ -369,6 +373,8 @@ export class Row {
   mandate: string;
   fa: FAPlayer | null;
   th: ThrivePlayer | null;
+  /** PAID_DIRECT or PAID_IN_FULL when the player is marked as paying outside Thrive. */
+  paid_outside = '';
 
   constructor(
     result: string,
@@ -1690,7 +1696,15 @@ export function mandate_known(th: ThrivePlayer | null): boolean {
   return th !== null && th.mandate !== MANDATE_UNKNOWN;
 }
 
+/** The Thrive mandate cell. A player marked as paid in full shows as an active mandate. */
+export function _mandate_text(row: Row): string {
+  const th = row.th as ThrivePlayer;
+  if (row.paid_outside === PAID_IN_FULL && !(th.mandate && mandate_known(th))) return 'Active';
+  return th.mandate || 'None';
+}
+
 export function paying_status(row: Row): string {
+  if (row.paid_outside) return row.paid_outside === PAID_DIRECT ? `Yes (${row.paid_outside.toLowerCase()})` : 'Yes';
   if (row.th !== null) {
     if (!mandate_known(row.th)) {
       return 'Unknown: add Active pre-authorisation to the Thrive export';
@@ -1726,7 +1740,7 @@ export function team_report(
     const [name, dob, age] = _name_dob(row, todayDate);
     const t = row.th ? row.th.fields : {};
     const f = row.fa ? row.fa.fields : {};
-    const mandate = !row.th ? 'Not in Thrive' : row.th.mandate || 'None';
+    const mandate = !row.th ? 'Not in Thrive' : _mandate_text(row);
     const values: unknown[] = [
       name,
       dob,
@@ -1766,7 +1780,7 @@ export function team_view_headers(include_medical = true): string[] {
 }
 
 export function paying_label(status: string): string {
-  if (status === 'Yes') return '✔ Yes';
+  if (status.startsWith('Yes')) return '✔ ' + status;
   if (status.startsWith('No')) {
     const reason = status.split(':')[1]?.trim() || '';
     return `✖ NOT PAYING (${reason})`;
@@ -1841,7 +1855,9 @@ export function not_paying_report(
   const rows: Array<[unknown[], string]> = [];
   for (const row of result.rows) {
     let reason: string;
-    if (row.th !== null && !row.th.mandate) {
+    if (row.paid_outside) {
+      continue;
+    } else if (row.th !== null && !row.th.mandate) {
       reason = 'No active mandate in Thrive';
     } else if (row.result === 'FA only') {
       reason = 'Registered in FA, not found in Thrive';
@@ -2217,23 +2233,31 @@ export function whatsapp_squad_list(
   const time =
     timeText ??
     `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const players = (result.teams[label] || [])
+  const members = (result.teams[label] || [])
     .filter(([source, row]) => source !== 'FA only' && row.th !== null)
-    .map(([, row]) => row.th as ThrivePlayer);
+    .map(([, row]) => row);
+  const th = (r: Row) => r.th as ThrivePlayer;
   const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   const dobKey = (d: LocalDate | null) => (d ? d.year * 10000 + d.month * 100 + d.day : 0);
-  players.sort(
-    (a, b) =>
-      Number(a.dob === null) - Number(b.dob === null) ||
-      dobKey(a.dob) - dobKey(b.dob) ||
-      cmp(a.last.toLowerCase(), b.last.toLowerCase()) ||
-      cmp(a.first.toLowerCase(), b.first.toLowerCase())
+  members.sort(
+    (ra, rb) => {
+      const a = th(ra);
+      const b = th(rb);
+      return Number(a.dob === null) - Number(b.dob === null) ||
+        dobKey(a.dob) - dobKey(b.dob) ||
+        cmp(a.last.toLowerCase(), b.last.toLowerCase()) ||
+        cmp(a.first.toLowerCase(), b.first.toLowerCase());
+    }
   );
+  const players = members.map(th);
   const known = players.every((t) => mandate_known(t));
-  const lines = players.map((t) => {
+  const paid = (r: Row) => Boolean(th(r).mandate || r.paid_outside);
+  const lines = members.map((r) => {
+    const t = th(r);
     let name = [t.first, t.last].filter(Boolean).join(' ');
     if (t.dob) name += `, ${formatDate(t.dob)} (${_age_years_months(t.dob, todayDate)})`;
-    return known ? `${t.mandate ? THUMB_UP : THUMB_DOWN} ${name}` : name;
+    if (r.paid_outside === PAID_DIRECT) name += ` (${r.paid_outside.toLowerCase()})`;
+    return known ? `${paid(r) ? THUMB_UP : THUMB_DOWN} ${name}` : name;
   });
   const title = label.endsWith(' (Thrive)') ? label.slice(0, -' (Thrive)'.length) : label;
   const out = [
@@ -2243,7 +2267,7 @@ export function whatsapp_squad_list(
     ...(lines.length ? lines : ['No players in Thrive for this team.']),
   ];
   if (known && players.length) {
-    const paying = players.filter((t) => t.mandate).length;
+    const paying = members.filter(paid).length;
     out.push(
       '',
       `Direct debit: ${paying} active, ${players.length - paying} without`,
@@ -2256,6 +2280,7 @@ export function whatsapp_squad_list(
 }
 
 export function _mandate_mark(row: Row): string {
+  if (row.paid_outside) return row.paid_outside === PAID_DIRECT ? `✅ (${row.paid_outside.toLowerCase()})` : '✅';
   if (row.th !== null && !mandate_known(row.th)) return '❓';
   return row.th !== null && Boolean(row.th.mandate) ? '✅' : '❌';
 }
@@ -2310,7 +2335,7 @@ export function whatsapp_squad(
 }
 
 export function _not_paying(row: Row): boolean {
-  return (row.th !== null && !row.th.mandate) || row.result === 'FA only';
+  return !row.paid_outside && ((row.th !== null && !row.th.mandate) || row.result === 'FA only');
 }
 
 export function not_paying_by_team(result: Result): Record<string, Array<[string, Row]>> {
