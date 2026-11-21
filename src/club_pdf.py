@@ -35,8 +35,9 @@ class TeamSummary:
     players: List[List[str]] = field(default_factory=list)      # PDF_HEADERS values
     in_fa: int = 0
     in_thrive: int = 0
-    paying: int = 0
+    paying: int = 0      # through Thrive or to the club directly
     not_paying: int = 0
+    club_direct: int = 0  # of the paying, how many pay the club directly
 
 
 @dataclass
@@ -270,7 +271,12 @@ def fa_cell(source: str, row: rc.Row) -> str:
     return row.fa_status or "Yes"
 
 
+CLUB_DIRECT = "Club direct"  # Paying cell for a player marked as paying the club directly
+
+
 def paying_cell(row: rc.Row) -> str:
+    if row.paid_outside == rc.PAID_DIRECT:
+        return CLUB_DIRECT
     status = rc.paying_status(row)
     if status.startswith("Yes"):
         return "Yes"
@@ -316,11 +322,17 @@ def club_summary(result: rc.Result, today: Optional[date] = None,
             t.players.append([name, str(age), fa, "Yes" if row.th else "No", paying])
             t.in_fa += row.fa is not None
             t.in_thrive += row.th is not None
-            t.paying += paying == "Yes"
+            t.paying += paying in ("Yes", CLUB_DIRECT)
+            t.club_direct += paying == CLUB_DIRECT
             t.not_paying += paying == "No"
         t.players.sort(key=lambda v: _surname_key(v[0]))
         teams.append(t)
     return teams
+
+
+def _direct_note(t: TeamSummary) -> str:
+    """' (2 to the club directly)' for the team page line, or nothing."""
+    return f" ({t.club_direct} to the club directly)" if t.club_direct else ""
 
 
 def _is_training(label: str) -> bool:
@@ -357,6 +369,7 @@ def club_totals(result: rc.Result) -> List[Tuple[str, int]]:
         out.append(("In the FA report", sum(1 for r in rows if r.fa is not None)))
     out += [("In Thrive", sum(1 for r in rows if r.th is not None)),
             ("Paying through Thrive", paying.count("Yes")),
+            ("Paying the club directly", paying.count(CLUB_DIRECT)),
             ("Not paying", paying.count("No"))]
     if paying.count("Unknown"):
         out.append(("Paying not known (no mandate column in the Thrive export)", paying.count("Unknown")))
@@ -639,7 +652,7 @@ def export_club_pdf(path: str, result: Optional[rc.Result], today: Optional[date
         if not t.staff:
             head.append(Paragraph("No coaches listed (add a managers file)", body))
         head.append(Paragraph(f"{len(t.players)} player{'' if len(t.players) == 1 else 's'}: {t.in_fa} in FA, {t.in_thrive} in Thrive, "
-                              f"{t.paying} paying, {t.not_paying} not paying.", small))
+                              f"{t.paying} paying{_direct_note(t)}, {t.not_paying} not paying.", small))
         head.append(Spacer(0, 6))
         table, style = grid([PDF_HEADERS] + t.players, widths)
         for i, v in enumerate(t.players, 1):
@@ -649,7 +662,8 @@ def export_club_pdf(path: str, result: Optional[rc.Result], today: Optional[date
                 if fa not in ("Not needed", "Not checked") else "#FFFFFF")))
             style.append(("BACKGROUND", (3, i), (3, i), colors.HexColor(GOOD if thrive == "Yes" else BAD)))
             style.append(("BACKGROUND", (4, i), (4, i), colors.HexColor(
-                GOOD if paying == "Yes" else BAD if paying == "No" else WARN if paying == "Unknown" else "#FFFFFF")))
+                GOOD if paying in ("Yes", CLUB_DIRECT) else BAD if paying == "No" else WARN if paying == "Unknown"
+                else "#FFFFFF")))
         table.setStyle(TableStyle(style))
         story.append(KeepTogether(head))
         story.append(table if t.players else Paragraph("No players.", body))

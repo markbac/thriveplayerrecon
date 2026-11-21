@@ -83,3 +83,18 @@ def test_mark_and_unmark_in_the_app(app_factory, fa_path, thrive_path, monkeypat
     a.unmark_paid(a.paid_tree)
     assert a.cfg["paid_outside"] == []
     assert "Ben Bold" in [a.np_tree.item(i, "values")[0] for i in a.np_tree.get_children()]
+
+
+def test_club_pdf_shows_club_direct_and_counts_it(result, tmp_path):
+    ben = row_for(result, "Ben Bold")
+    label = _team_of(result, ben)
+    before = dict(club_pdf.club_totals(result))
+    paid_outside.apply_paid(result, paid_outside.mark([], ben, "direct"))
+    team = next(t for t in club_pdf.club_summary(result) if t.label == label)
+    assert next(p for p in team.players if p[0] == "Ben Bold")[-1] == "Club direct"
+    assert team.club_direct == 1 and team.not_paying == 0
+    after = dict(club_pdf.club_totals(result))
+    assert after["Paying the club directly"] == 1
+    assert after["Paying through Thrive"] == before["Paying through Thrive"]
+    assert after["Not paying"] == before["Not paying"] - 1
+    club_pdf.export_club_pdf(str(tmp_path / "club.pdf"), result)  # draws without error

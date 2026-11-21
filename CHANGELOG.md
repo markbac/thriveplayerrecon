@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-11-21
+
+### Changed
+- Club PDF: a player marked as paying the club directly shows **Club direct** in the Paying column of their team page (green, counted as paying), the team line says how many pay the club directly, and the club summary has a new **Paying the club directly** count (Paying through Thrive no longer includes them). Paid in full still shows as Yes
+
 ## [1.12.0] - 2026-11-21
 
 ### Added
