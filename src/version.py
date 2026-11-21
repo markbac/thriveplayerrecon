@@ -3,5 +3,5 @@ in web/src/reconcile_core.ts and web/package.json). BUILD_DATETIME is stamped au
 app are built."""
 APP_NAME = "PlayerReconcile"
 APP_TITLE = "Player Reconciliation"
-__version__ = "1.12.0"
+__version__ = "1.12.1"
 BUILD_DATETIME = "development build"  # replaced with the UK build time by the release workflow

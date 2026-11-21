@@ -117,3 +117,22 @@ describe('Web app', () => {
     expect(rc.not_paying_report(app.result!)[1].map(([v]) => v[0])).toContain('Ben Bold');
   });
 });
+
+describe('Club PDF', () => {
+  it('shows Club direct and counts it in the summary', async () => {
+    const { club_summary, club_totals } = await import('../src/club_pdf');
+    const res = await sampleResult();
+    const ben = rowFor(res, 'Ben Bold');
+    const label = teamOf(res, ben);
+    const before = Object.fromEntries(club_totals(res));
+    cd.apply_paid(res, cd.mark_paid([], ben, 'direct', REF_TODAY));
+    const team = club_summary(res, REF_TODAY).find((t) => t.label === label)!;
+    expect(team.players.find((p) => p[0] === 'Ben Bold')![4]).toBe('Club direct');
+    expect(team.club_direct).toBe(1);
+    expect(team.not_paying).toBe(0);
+    const after = Object.fromEntries(club_totals(res));
+    expect(after['Paying the club directly']).toBe(1);
+    expect(after['Paying through Thrive']).toBe(before['Paying through Thrive']);
+    expect(after['Not paying']).toBe(before['Not paying'] - 1);
+  });
+});

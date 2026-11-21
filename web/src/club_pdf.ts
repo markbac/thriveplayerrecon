@@ -31,8 +31,9 @@ export interface TeamSummary {
   players: string[][]; // PDF_HEADERS values
   in_fa: number;
   in_thrive: number;
-  paying: number;
+  paying: number; // through Thrive or to the club directly
   not_paying: number;
+  club_direct: number; // of the paying, how many pay the club directly
 }
 
 /** A person (or an unfilled role) from the club officials file or the managers file. */
@@ -248,7 +249,11 @@ export function fa_cell(source: string, row: rc.Row): string {
   return row.fa_status || 'Yes';
 }
 
+/** Paying cell for a player marked as paying the club directly. */
+export const CLUB_DIRECT = 'Club direct';
+
 export function paying_cell(row: rc.Row): string {
+  if (row.paid_outside === rc.PAID_DIRECT) return CLUB_DIRECT;
   const status = rc.paying_status(row);
   if (status.startsWith('Yes')) return 'Yes';
   if (status.startsWith('No')) return 'No';
@@ -277,7 +282,7 @@ export function club_summary(
   const out: TeamSummary[] = [];
   const labels = [...rc.team_labels(result)].sort((a, b) => Number(isTraining(a)) - Number(isTraining(b))); // stable
   for (const label of labels) {
-    const t: TeamSummary = { label, staff: [], players: [], in_fa: 0, in_thrive: 0, paying: 0, not_paying: 0 };
+    const t: TeamSummary = { label, staff: [], players: [], in_fa: 0, in_thrive: 0, paying: 0, not_paying: 0, club_direct: 0 };
     const people = result.staff[label] || [];
     const roles: Array<['manager' | 'assistant' | 'other', string]> = [
       ['manager', 'Manager'],
@@ -305,7 +310,8 @@ export function club_summary(
       t.players.push([name, String(age), fa, row.th ? 'Yes' : 'No', paying]);
       if (row.fa) t.in_fa++;
       if (row.th) t.in_thrive++;
-      if (paying === 'Yes') t.paying++;
+      if (paying === 'Yes' || paying === CLUB_DIRECT) t.paying++;
+      if (paying === CLUB_DIRECT) t.club_direct++;
       if (paying === 'No') t.not_paying++;
     }
     t.players.sort((a, b) => (surnameKey(a[0]) < surnameKey(b[0]) ? -1 : surnameKey(a[0]) > surnameKey(b[0]) ? 1 : 0));
@@ -358,6 +364,7 @@ export function club_totals(result: rc.Result): Array<[string, number]> {
   out.push(
     ['In Thrive', rows.filter((r) => r.th !== null).length],
     ['Paying through Thrive', count('Yes')],
+    ['Paying the club directly', count(CLUB_DIRECT)],
     ['Not paying', count('No')]
   );
   if (count('Unknown')) out.push(['Paying not known (no mandate column in the Thrive export)', count('Unknown')]);
@@ -709,8 +716,8 @@ export async function buildClubPdf(
     });
     if (!t.staff.length) w.text('No coaches listed (add a managers file)', 10.5, f.regular, BLACK, 0);
     w.y -= 2;
-    w.text(`${t.players.length} player${t.players.length === 1 ? '' : 's'}: ${t.in_fa} in FA, ${t.in_thrive} in Thrive, ${t.paying} paying, ` +
-      `${t.not_paying} not paying.`, 9, f.regular, GREY, 6);
+    w.text(`${t.players.length} player${t.players.length === 1 ? '' : 's'}: ${t.in_fa} in FA, ${t.in_thrive} in Thrive, ${t.paying} paying` +
+      `${t.club_direct ? ` (${t.club_direct} to the club directly)` : ''}, ${t.not_paying} not paying.`, 9, f.regular, GREY, 6);
     if (!t.players.length) {
       w.text('No players.', 10.5, f.regular);
       continue;
@@ -723,7 +730,7 @@ export async function buildClubPdf(
         return v === 'Not needed' || v === 'Not checked' ? null : WARN;
       }
       if (c === 3) return v === 'Yes' ? GOOD : BAD;
-      if (c === 4) return v === 'Yes' ? GOOD : v === 'No' ? BAD : v === 'Unknown' ? WARN : null;
+      if (c === 4) return v === 'Yes' || v === CLUB_DIRECT ? GOOD : v === 'No' ? BAD : v === 'Unknown' ? WARN : null;
       return null;
     });
   }
