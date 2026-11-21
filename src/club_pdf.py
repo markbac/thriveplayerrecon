@@ -272,7 +272,7 @@ def fa_cell(source: str, row: rc.Row) -> str:
 
 def paying_cell(row: rc.Row) -> str:
     status = rc.paying_status(row)
-    if status == "Yes":
+    if status.startswith("Yes"):
         return "Yes"
     if status.startswith("No"):
         return "No"

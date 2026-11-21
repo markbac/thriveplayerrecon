@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-21
+
+### Added
+- **Paying outside Thrive** (web and desktop): mark a player as **Pays the club directly** or **Paid in full** ("Paying outside Thrive" on the Not paying tab; desktop also right-click on Results). Marked players count as paying: they come off the Not paying list, the not paying WhatsApp messages and team counts. Paid in full shows exactly like an active Thrive direct debit everywhere (Yes, tick, thumbs up, mandate "Active"); pays the club directly shows as "Yes (pays the club directly)". FA registration checks are unchanged. Marks are listed on a new **Paying outside Thrive** tab, where they can be cleared, are stored only as one-way codes (no names) and are included in the encrypted club data file
+
 ## [1.11.0] - 2026-11-20
 
 ### Added

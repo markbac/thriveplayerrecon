@@ -34,6 +34,10 @@ NO_FA = "No FA needed"
 FA_NOT_CHECKED = "FA not checked"  # Thrive-only run: no FA report was loaded, so FA registration is unknown
 # Results views that compare against the FA report, so are not checked in a Thrive-only run
 FA_VIEWS = ("In Thrive, not in FA", "In FA, not in Thrive", "Check match", "Team differs")
+# Players marked as paying outside Thrive (set from the app's saved marks after reconciling): they count as paying
+# and are not flagged on the Not paying list, the team sheets or the WhatsApp messages
+PAID_DIRECT = "Pays the club directly"
+PAID_IN_FULL = "Paid in full"  # shown exactly as an active Thrive mandate, with no note
 
 # Default Thrive team -> FA team mapping, derived from the first pair of exports.
 # Thrive values on the left, FA team names on the right, None = ignore.
@@ -214,6 +218,7 @@ class Row:
     mandate: str
     fa: Optional[FAPlayer] = None
     th: Optional[ThrivePlayer] = None
+    paid_outside: str = ""  # PAID_DIRECT or PAID_IN_FULL when the player is marked as paying outside Thrive
 
     @property
     def level(self) -> str:
@@ -968,7 +973,7 @@ def team_report(result: Result, label: str, include_medical: bool = True, today:
         name, dob, age = _name_dob(row, today)
         t = row.th.fields if row.th else {}
         f = row.fa.fields if row.fa else {}
-        mandate = "Not in Thrive" if not row.th else (row.th.mandate or "None")
+        mandate = "Not in Thrive" if not row.th else _mandate_text(row)
         values = [name, dob, age, source, row.fa_status, mandate, paying_status(row), row.issue] \
             + _contact_values(row) \
             + (_medical_values(row) if include_medical else []) \
@@ -982,12 +987,21 @@ PLAYER_HEADERS = ["Player", "DOB", "Age", "In", "FA status", "Thrive mandate", "
                   "Reconciliation note"]
 
 
+def _mandate_text(row: Row) -> str:
+    """The Thrive mandate cell. A player marked as paid in full shows as an active mandate."""
+    if row.paid_outside == PAID_IN_FULL and not (row.th.mandate and mandate_known(row.th)):
+        return "Active"
+    return row.th.mandate or "None"
+
+
 def mandate_known(th) -> bool:
     return th is not None and th.mandate != MANDATE_UNKNOWN
 
 
 def paying_status(row: Row) -> str:
     """Whether the player pays through Thrive, using the same rule as the Not paying list."""
+    if row.paid_outside:
+        return f"Yes ({row.paid_outside.lower()})" if row.paid_outside == PAID_DIRECT else "Yes"
     if row.th is not None:
         if not mandate_known(row.th):
             return "Unknown: add Active pre-authorisation to the Thrive export"
@@ -1007,8 +1021,8 @@ def team_view_headers(include_medical: bool = True) -> List[str]:
 
 def paying_label(status: str) -> str:
     """Short, eye-catching form of paying_status for the on-screen list."""
-    if status == "Yes":
-        return "✔ Yes"
+    if status.startswith("Yes"):
+        return "✔ " + status
     if status.startswith("No"):
         return "✖ NOT PAYING (" + status.split(":", 1)[1].strip() + ")"
     if status.startswith("Unknown"):
@@ -1046,6 +1060,8 @@ def not_paying_report(result: Result, today: Optional[date] = None):
                "Parent/carer (FA)", "Parent/carer email (FA)", "Emergency contact (FA)", "Emergency phone (FA)"]
     rows = []
     for row in result.rows:
+        if row.paid_outside:
+            continue
         if row.th is not None and not row.th.mandate:
             reason = "No active mandate in Thrive"
         elif row.result == "FA only":
@@ -1405,20 +1421,25 @@ def whatsapp_squad_list(result: Result, label: str, today: Optional[date] = None
     now = datetime.now()
     today = today or now.date()
     time_text = time_text if time_text is not None else f"{now:%H:%M}"
-    players = [row.th for source, row in result.teams.get(label, []) if source != "FA only" and row.th]
-    players.sort(key=lambda t: (t.dob is None, t.dob or date.min, t.last.lower(), t.first.lower()))
+    members = [row for source, row in result.teams.get(label, []) if source != "FA only" and row.th]
+    members.sort(key=lambda r: (r.th.dob is None, r.th.dob or date.min, r.th.last.lower(), r.th.first.lower()))
+    players = [r.th for r in members]
     known = all(mandate_known(t) for t in players)
+    paid = lambda r: bool(r.th.mandate or r.paid_outside)  # noqa: E731
     lines = []
-    for t in players:
+    for r in members:
+        t = r.th
         name = " ".join(x for x in (t.first, t.last) if x)
         if t.dob:
             name += f", {t.dob:%d/%m/%Y} ({_age_years_months(t.dob, today)})"
-        lines.append(f"{THUMB_UP if t.mandate else THUMB_DOWN} {name}" if known else name)
+        if r.paid_outside == PAID_DIRECT:
+            name += f" ({r.paid_outside.lower()})"
+        lines.append(f"{THUMB_UP if paid(r) else THUMB_DOWN} {name}" if known else name)
     title = label[:-len(" (Thrive)")] if label.endswith(" (Thrive)") else label
     out = [f"*{title}* squad in Thrive ({len(players)} players)", f"Generated {today:%d/%m/%Y} {time_text}", ""]
     out += lines or ["No players in Thrive for this team."]
     if known and players:
-        paying = sum(1 for t in players if t.mandate)
+        paying = sum(1 for r in members if paid(r))
         out += ["", f"Direct debit: {paying} active, {len(players) - paying} without", "",
                 f"{THUMB_UP} = active Thrive direct debit (mandate)", f"{THUMB_DOWN} = no active direct debit"]
     return "\n".join(out + ["", SQUAD_LIST_FOOTNOTE])
@@ -1426,14 +1447,17 @@ def whatsapp_squad_list(result: Result, label: str, today: Optional[date] = None
 
 def _mandate_mark(row: Row) -> str:
     """Tick, cross, or a question mark when the Thrive export had no mandate column."""
+    if row.paid_outside:
+        return f"✅ ({row.paid_outside.lower()})" if row.paid_outside == PAID_DIRECT else "✅"
     if row.th is not None and not mandate_known(row.th):
         return "❓"
     return "✅" if row.th is not None and row.th.mandate else "❌"
 
 
 def _not_paying(row: Row) -> bool:
-    """Same rule as not_paying_report: no active Thrive mandate, or in the FA but not found in Thrive."""
-    return (row.th is not None and not row.th.mandate) or row.result == "FA only"
+    """Same rule as not_paying_report: no active Thrive mandate, or in the FA but not found in Thrive, and not
+    marked as paying outside Thrive."""
+    return not row.paid_outside and ((row.th is not None and not row.th.mandate) or row.result == "FA only")
 
 
 def not_paying_by_team(result: Result) -> Dict[str, List[Tuple[str, Row]]]:

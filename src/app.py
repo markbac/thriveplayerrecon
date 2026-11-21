@@ -18,6 +18,7 @@ import club_data
 import club_pdf
 import coaches as co
 import left_club
+import paid_outside
 import reconcile_core as rc
 from version import APP_NAME, APP_TITLE, BUILD_DATETIME, __version__
 
@@ -185,6 +186,11 @@ These are the players who will not be paying through Thrive.
 
 Players listed as "not found in Thrive" may be there under a different name. Check before you chase.
 
+A player who pays the club directly, or has already paid in full, can be marked with Paying outside Thrive (or by \
+right-clicking them on the Results tab). They come off this list and count as paying. Paid in full shows exactly \
+like an active Thrive direct debit everywhere; pays the club directly shows as "Yes (pays the club directly)". Marks \
+are listed, and can be cleared, on the Paying outside Thrive tab.
+
 If the Thrive export has no mandate column (Active pre-authorisation), a red note at the top says so and the list \
 can only show players not found in Thrive.
 
@@ -218,7 +224,7 @@ entirely on your computer and sends nothing anywhere. A reminder appears every t
 Keep the exports and anything you save secure, only share team files with that team's manager, and delete \
 files when they are no longer needed. This is also an FA requirement for the registration report.
 
-The app remembers two things between runs, in its settings file on this computer: players marked as left the club, kept only as one-way codes made from their FAN ID (no names), and your notes on coaches, kept against a one-way code of the coach's FAN ID. Export club data saves them in a file encrypted with a passphrase, so they can be moved to another computer without being readable on the way."""),
+The app remembers three things between runs, in its settings file on this computer: players marked as left the club and players marked as paying outside Thrive, kept only as one-way codes made from their FAN ID (no names), and your notes on coaches, kept against a one-way code of the coach's FAN ID. Export club data saves them in a file encrypted with a passphrase, so they can be moved to another computer without being readable on the way."""),
     ("trouble", "Troubleshooting", """\
 "Does not look like the FA report / Thrive export": you picked the wrong file. The tool can swap the two boxes \
 for you if they are the wrong way round.
@@ -443,6 +449,7 @@ class App(tk.Tk):
         self._build_consents_tab()
         self._build_coaches_tab()
         self._build_left_tab()
+        self._build_paid_tab()
         self._build_mapping_tab()
         self._refresh_mapping_table()
         self._set_exports_enabled(False)
@@ -642,6 +649,13 @@ class App(tk.Tk):
         self.tree.bind("<Double-1>", lambda _e: self._row_detail(self.tree))
         self.results_menu = tk.Menu(self, tearoff=0)
         self.results_menu.add_command(label="Mark as left the club...", command=lambda: self.mark_left(self.tree))
+        self.results_menu.add_separator()
+        self.results_menu.add_command(label="Mark as pays the club directly",
+                                      command=lambda: self.mark_paid(self.tree, "direct"))
+        self.results_menu.add_command(label="Mark as paid in full (show as set up in Thrive)",
+                                      command=lambda: self.mark_paid(self.tree, "full"))
+        self.results_menu.add_command(label="Clear paying outside Thrive mark",
+                                      command=lambda: self.unmark_paid(self.tree))
 
         def popup(event) -> None:
             item = self.tree.identify_row(event.y)
@@ -1028,10 +1042,13 @@ class App(tk.Tk):
         return first
 
     def export_club_data(self) -> None:
-        """Left the club marks and coach notes, encrypted with a passphrase, to move to another computer."""
-        data = {"left_players": self.cfg.get("left_players"), "coach_notes": self.cfg.get("coach_notes")}
-        if not left_club.clean_marks(data["left_players"]) and not club_data.clean_notes(data["coach_notes"]):
-            messagebox.showinfo("Nothing to export", "There are no left the club marks or coach notes yet.")
+        """Left the club and paying outside Thrive marks and coach notes, encrypted with a passphrase, to move to
+        another computer."""
+        data = {"left_players": self.cfg.get("left_players"), "coach_notes": self.cfg.get("coach_notes"),
+                "paid_outside": self.cfg.get("paid_outside")}
+        if not left_club.clean_marks(data["left_players"]) and not club_data.clean_notes(data["coach_notes"]) \
+                and not paid_outside.clean_marks(data["paid_outside"]):
+            messagebox.showinfo("Nothing to export", "There are no player marks or coach notes yet.")
             return
         passphrase = self._ask_passphrase("Export club data", confirm=True)
         if passphrase is None:
@@ -1062,13 +1079,15 @@ class App(tk.Tk):
             messagebox.showerror("Import club data", str(exc))
             return
         merged = club_data.merge({"left_players": self.cfg.get("left_players"),
-                                  "coach_notes": self.cfg.get("coach_notes")}, incoming)
+                                  "coach_notes": self.cfg.get("coach_notes"),
+                                  "paid_outside": self.cfg.get("paid_outside")}, incoming)
         self.cfg.update(merged)
         save_config(self.cfg)
         if self.fa_players is not None:
             self._recompute()
         self._fill_coaches_tab()
-        messagebox.showinfo("Imported", f"Imported {len(incoming['left_players'])} left the club mark(s) and "
+        messagebox.showinfo("Imported", f"Imported {len(incoming['left_players'])} left the club mark(s), "
+                                        f"{len(incoming['paid_outside'])} paying outside Thrive mark(s) and "
                                         f"{len(incoming['coach_notes'])} coach note(s), merged with this computer's.")
 
     def export_updated_officials(self) -> None:
@@ -1204,7 +1223,8 @@ class App(tk.Tk):
         return left_club.clean_marks(self.cfg.get("left_players"))
 
     def _row_from_table(self, tree):
-        """The reconciliation row for the selected line of the Results, Not paying or Left the club table."""
+        """The reconciliation row for the selected line of the Results, Not paying, Left the club or Paying outside
+        Thrive table."""
         sel = tree.selection()
         if not sel or not self.result:
             return None
@@ -1274,6 +1294,83 @@ class App(tk.Tk):
             parts.append(f"{stale} mark(s) are for players not in these files any more; you can clear them.")
         self.left_info_var.set("  ".join(parts))
 
+    def _build_paid_tab(self) -> None:
+        tab = ttk.Frame(self.nb, padding=6)
+        self.nb.add(tab, text="  Paying outside Thrive  ")
+        self.paid_tab = tab
+        top = ttk.Frame(tab)
+        top.pack(fill="x", pady=(0, 6))
+        tip(ttk.Button(top, text="Clear mark", command=lambda: self.unmark_paid(self.paid_tree)),
+            "Select a player to check them against Thrive again (for example at the start of a new season)."
+            ).pack(side="right", anchor="n")
+        self.paid_clear_button = tip(ttk.Button(top, text="Clear marks no longer needed", command=self.clear_paid),
+                                     "Forget marks for players who are not in the files any more.")
+        self.paid_clear_button.pack(side="right", anchor="n", padx=(0, 6))
+        autowrap(ttk.Label(top, style="Hint.TLabel", justify="left", text=paid_outside.PAID_NOTE)
+                 ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.paid_info_var = tk.StringVar()
+        autowrap(ttk.Label(tab, textvariable=self.paid_info_var, style="Warn.TLabel")).pack(fill="x", pady=(0, 4))
+        self.paid_search_var, self.paid_count_var = tk.StringVar(), tk.StringVar()
+        self._search_row(tab, self.paid_search_var, self.paid_count_var, "Type part of a name or team.",
+                         "Mark players on the Not paying tab, or right-click a player on the Results tab.")
+        self.paid_tree = self._make_tree(tab)
+        self._register_table(self.paid_tree, self.paid_search_var, self.paid_count_var)
+
+    def _paid_marks(self):
+        return paid_outside.clean_marks(self.cfg.get("paid_outside"))
+
+    def mark_paid(self, tree, kind: str) -> None:
+        row = self._row_from_table(tree)
+        if row is None:
+            messagebox.showinfo("Choose a player", "Click the player first.")
+            return
+        name = row.fa_name or row.thrive_name
+        what = ("pays the club directly (not through Thrive)" if kind == "direct" else
+                "paid in full. They will show exactly as if they have an active Thrive direct debit")
+        if not messagebox.askyesno("Paying outside Thrive", f"Mark {name} as {what}?\n\nThey are taken off the "
+                                   "not paying list and messages. You can undo it on the Paying outside Thrive tab."):
+            return
+        self.cfg["paid_outside"] = paid_outside.mark(self._paid_marks(), row, kind)
+        save_config(self.cfg)
+        self._recompute()
+        self.status_var.set(f"{name} marked as {paid_outside.KINDS[kind].lower()}. See the Paying outside Thrive tab.")
+
+    def unmark_paid(self, tree) -> None:
+        row = self._row_from_table(tree)
+        if row is None:
+            messagebox.showinfo("Choose a player", "Click the player first.")
+            return
+        if not paid_outside.kind_of(self._paid_marks(), row):
+            messagebox.showinfo("Not marked", "That player is not marked as paying outside Thrive.")
+            return
+        self.cfg["paid_outside"] = paid_outside.unmark(self._paid_marks(), row)
+        save_config(self.cfg)
+        self._recompute()
+        self.status_var.set(f"{row.fa_name or row.thrive_name} is checked against Thrive again.")
+
+    def clear_paid(self) -> None:
+        paid_rows = getattr(self.result, "paid_rows", []) if self.result else []
+        found = {paid_outside.paid_id(r) for r in paid_rows}
+        stale = [m for m in self._paid_marks() if m["id"] not in found]
+        if not stale or not self.result:
+            messagebox.showinfo("Nothing to clear", "Every mark is for a player still in the files.")
+            return
+        if messagebox.askyesno("Clear marks", f"Forget {len(stale)} mark(s) for players who are not in these files "
+                                              "any more?"):
+            self.cfg["paid_outside"] = [m for m in self._paid_marks() if m["id"] in found]
+            save_config(self.cfg)
+            self._fill_paid_tab()
+
+    def _fill_paid_tab(self) -> None:
+        paid_rows = getattr(self.result, "paid_rows", []) if self.result else []
+        headers, rows = paid_outside.paid_rows_table(paid_rows, self._paid_marks())
+        self._set_table(self.paid_tree, headers, [([_cell(v) for v in values], (), None, "") for values in rows])
+        self.nb.tab(self.paid_tab, text=f"  Paying outside Thrive ({len(rows)})  " if rows
+                    else "  Paying outside Thrive  ")
+        stale = paid_outside.unmatched_marks(self._paid_marks(), paid_rows) if self.result else 0
+        self.paid_info_var.set(f"{stale} mark(s) are for players not in these files any more; you can clear them."
+                               if stale else "")
+
     def _build_not_paying_tab(self) -> None:
         tab = ttk.Frame(self.nb, padding=6)
         self.nb.add(tab, text="  Not paying  ")
@@ -1293,6 +1390,17 @@ class App(tk.Tk):
                      "this list, the team sheets, counts and the club PDF, and shown on the Left the club tab.")
         b_left.pack(side="right", anchor="n", padx=(0, 6))
         self.export_buttons.append(b_left)
+        b_paid = tip(ttk.Menubutton(top, text="Paying outside Thrive"),
+                     "Select a player who pays the club directly, or who has already paid in full: they are taken "
+                     "off this list and counted as paying. Paid in full shows exactly like an active Thrive direct "
+                     "debit. Undo it on the Paying outside Thrive tab.")
+        paid_menu = tk.Menu(b_paid, tearoff=0)
+        paid_menu.add_command(label="Pays the club directly", command=lambda: self.mark_paid(self.np_tree, "direct"))
+        paid_menu.add_command(label="Paid in full (show as set up in Thrive)",
+                              command=lambda: self.mark_paid(self.np_tree, "full"))
+        b_paid["menu"] = paid_menu
+        b_paid.pack(side="right", anchor="n", padx=(0, 6))
+        self.export_buttons.append(b_paid)
         autowrap(ttk.Label(top, style="Hint.TLabel", wraplength=1000, justify="left", text=(
             "Players with no active Thrive mandate, plus players registered with the FA but not found in Thrive: "
             "the ones who will not be paying through Thrive. FA-only players may be in Thrive under another "
@@ -1670,6 +1778,7 @@ class App(tk.Tk):
         result = rc.reconcile(self.fa_players, self.thrive_players, team_map, fuzzy)
         # players marked as left the club come out of everything, before the managers are attached
         result.left_rows = left_club.apply_left(result, left_club.clean_marks(self.cfg.get("left_players")))
+        result.paid_rows = paid_outside.apply_paid(result, paid_outside.clean_marks(self.cfg.get("paid_outside")))
         rc.attach_staff(result, self.staff, team_map)
         return result
 
@@ -1701,6 +1810,7 @@ class App(tk.Tk):
             ("Not checked, because the Thrive export has no answers for: " + ", ".join(unchecked)
              + ". Add them in Thrive (Contacts > Manage table columns) and export again.") if unchecked else "")
         self._fill_left_tab()
+        self._fill_paid_tab()
         labels = rc.team_labels(self.result)
         self.team_choices = {rc.team_choice_label_with_unpaid(self.result, l): l for l in labels}
         self.team_box["values"] = list(self.team_choices)

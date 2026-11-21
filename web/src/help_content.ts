@@ -179,6 +179,8 @@ Send messages only to the people who need them, never to a big group, and ask th
 
 Players listed as "not found in Thrive" may be there under a different name. Check before you chase.
 
+A player who pays the club directly, or has already paid in full, can be marked with Paying outside Thrive. They come off this list and count as paying. Paid in full shows exactly like an active Thrive direct debit everywhere; pays the club directly shows as "Yes (pays the club directly)". Marks are listed, and can be cleared, on the Paying outside Thrive tab.
+
 If the Thrive export has no mandate column (Active pre-authorisation), a red note at the top says so and the list can only show players not found in Thrive.
 
 Use Search and the column headings to narrow and sort the list. Columns that are empty for everyone are hidden.
@@ -208,7 +210,7 @@ Choose (ignore) for Thrive groups with no FA team, such as training squads. Chan
   [
     'privacy',
     'Looking after the data',
-    `The files contain children's personal and medical details, which are protected by UK GDPR. The web app works entirely inside your browser on your computer: files are read, compared and exported locally and are never uploaded anywhere. Outgoing network connections are blocked by the page's Content Security Policy (connect-src 'none'), and browser storage holds your team mappings and preferences, players marked as left the club (only as one-way codes made from their FAN ID, never names) and your notes on coaches (kept against a one-way code of the coach's FAN ID). Export club data saves the marks and notes in a file encrypted with a passphrase, so they can be moved to another computer without being readable on the way. A reminder appears every time you export.
+    `The files contain children's personal and medical details, which are protected by UK GDPR. The web app works entirely inside your browser on your computer: files are read, compared and exported locally and are never uploaded anywhere. Outgoing network connections are blocked by the page's Content Security Policy (connect-src 'none'), and browser storage holds your team mappings and preferences, players marked as left the club or as paying outside Thrive (only as one-way codes made from their FAN ID, never names) and your notes on coaches (kept against a one-way code of the coach's FAN ID). Export club data saves the marks and notes in a file encrypted with a passphrase, so they can be moved to another computer without being readable on the way. A reminder appears every time you export.
 
 Keep the exports and anything you save secure, only share team files with that team's manager, and delete files when they are no longer needed. This is also an FA requirement for the registration report.`,
   ],
