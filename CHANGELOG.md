@@ -4,6 +4,11 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.12.2] - 2026-11-25
+
+### Security
+- Web app: updated the build and test tools (Vite 6.4.6, Vitest 4.1.12) and the zip library (fflate 0.8.3), and the uuid library used by the Excel export (11.1.1), clearing all open Dependabot alerts. A malformed Excel file can no longer make the zip reader loop forever. No change to how the app works
+
 ## [1.12.1] - 2026-11-21
 
 ### Changed
