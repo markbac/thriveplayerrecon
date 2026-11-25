@@ -34,6 +34,13 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  server: {
+    // The app bundles ../CHANGELOG.md via ?raw. Vite 6.4.5+ checks ?raw ids against
+    // server.fs.allow (a single-file entry does not match the "?raw" id), so allow the repo root.
+    fs: {
+      allow: ['..'],
+    },
+  },
   test: {
     environment: 'jsdom',
     include: ['tests/**/*.test.ts'],
